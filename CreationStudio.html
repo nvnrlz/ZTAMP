@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Agentic Workflow Creation Studio</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap"
+        rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
+        rel="stylesheet" />
+    <script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        primary: "#3b82f6", // Blue for primary actions
+                        "background-light": "#f3f4f6", // Light gray background
+                        "background-dark": "#111827", // Dark background
+                        "surface-light": "#ffffff",
+                        "surface-dark": "#1f2937",
+                        "border-light": "#e5e7eb",
+                        "border-dark": "#374151",
+                        // Node specific colors from image
+                        "node-blue": "#60a5fa",
+                        "node-yellow": "#fcd34d",
+                        "node-green": "#86efac",
+                        "node-purple": "#f472b6",
+                        "node-grey": "#9ca3af",
+                        "node-orange": "#f87171",
+                    },
+                    fontFamily: {
+                        display: ["Inter", "sans-serif"],
+                        mono: ["ui-monospace", "SFMono-Regular", "Menlo", "Monaco", "Consolas", "Liberation Mono", "Courier New", "monospace"],
+                    },
+                    borderRadius: {
+                        DEFAULT: "0.5rem",
+                        'xl': "1rem",
+                        '2xl': "1.5rem",
+                        '3xl': "2rem",
+                    },
+                    boxShadow: {
+                        'overlay': '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1), -10px 0 30px rgba(0,0,0,0.05)',
+                        'glow': '0 0 0 4px rgba(59, 130, 246, 0.4)',
+                    }
+                },
+            },
+        };
+    </script>
+    <style>
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+
+        .dark ::-webkit-scrollbar-thumb {
+            background: #4b5563;
+        }
+
+        .connection-line {
+            position: absolute;
+            background-color: #9ca3af;
+            z-index: 0;
+        }
+
+        .arrow-head {
+            width: 0;
+            height: 0;
+            border-top: 5px solid transparent;
+            border-bottom: 5px solid transparent;
+            border-left: 8px solid #9ca3af;
+            position: absolute;
+        }
+
+        @keyframes slideInRight {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .animate-slide-in {
+            animation: slideInRight 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+    </style>
+</head>
+
+<body
+    class="bg-background-light dark:bg-background-dark text-gray-800 dark:text-gray-200 font-display h-screen flex flex-col overflow-hidden transition-colors duration-200">
+    <header
+        class="h-14 bg-surface-light dark:bg-surface-dark border-b border-border-light dark:border-border-dark flex items-center justify-between px-4 shrink-0 z-20 relative">
+        <div class="flex items-center gap-3">
+            <div
+                class="w-8 h-8 bg-black dark:bg-white rounded flex items-center justify-center text-white dark:text-black">
+                <span class="material-icons-outlined text-xl">auto_awesome</span>
+            </div>
+            <h1 class="font-semibold text-lg tracking-tight">Agentic Studio</h1>
+        </div>
+        <div class="flex items-center gap-4">
+            <button
+                class="text-sm font-medium text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white">Documentation</button>
+            <div class="w-px h-4 bg-gray-300 dark:bg-gray-700"></div>
+            <div class="flex items-center gap-2">
+                <div
+                    class="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-blue-600 dark:text-blue-300 font-bold text-xs">
+                    JD</div>
+            </div>
+            <button class="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
+                onclick="document.documentElement.classList.toggle('dark')">
+                <span class="material-icons-outlined dark:hidden">dark_mode</span>
+                <span class="material-icons-outlined hidden dark:block">light_mode</span>
+            </button>
+        </div>
+    </header>
+    <main class="flex-1 flex overflow-hidden relative">
+        <aside
+            class="w-80 flex flex-col border-r border-border-light dark:border-border-dark bg-surface-light dark:bg-surface-dark shrink-0 relative z-10 shadow-sm">
+            <div class="p-4 border-b border-border-light dark:border-border-dark flex justify-between items-center">
+                <h2 class="font-semibold text-sm uppercase tracking-wide text-gray-500 dark:text-gray-400">Planner Agent
+                </h2>
+                <span
+                    class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                    Active
+                </span>
+            </div>
+            <div class="flex-1 overflow-y-auto p-4 space-y-4">
+                <div class="flex gap-3">
+                    <div
+                        class="w-8 h-8 rounded-full bg-purple-100 dark:bg-purple-900 flex items-center justify-center shrink-0">
+                        <span
+                            class="material-icons-outlined text-purple-600 dark:text-purple-300 text-sm">smart_toy</span>
+                    </div>
+                    <div class="flex flex-col gap-1 max-w-[85%]">
+                        <span class="text-xs font-medium text-gray-500">Planner</span>
+                        <div
+                            class="p-3 bg-gray-100 dark:bg-gray-800 rounded-lg text-sm rounded-tl-none border border-border-light dark:border-border-dark">
+                            <p>Hello! I'm ready to help you build your workflow. Describe what you want to achieve.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex gap-3 flex-row-reverse">
+                    <div
+                        class="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center shrink-0">
+                        <span class="material-icons text-gray-600 dark:text-gray-300 text-sm">person</span>
+                    </div>
+                    <div class="flex flex-col gap-1 items-end max-w-[85%]">
+                        <span class="text-xs font-medium text-gray-500">You</span>
+                        <div
+                            class="p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg text-sm rounded-tr-none border border-blue-100 dark:border-blue-800 text-blue-900 dark:text-blue-100">
+                            <p>I need a workflow that processes sales data from Excel, checks conditions, and emails a
+                                report.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex gap-3">
+                    <div
+                        class="w-8 h-8 rounded-full bg-purple-100 dark:bg-purple-900 flex items-center justify-center shrink-0">
+                        <span
+                            class="material-icons-outlined text-purple-600 dark:text-purple-300 text-sm">smart_toy</span>
+                    </div>
+                    <div class="flex flex-col gap-1 max-w-[85%]">
+                        <span class="text-xs font-medium text-gray-500">Planner</span>
+                        <div
+                            class="p-3 bg-gray-100 dark:bg-gray-800 rounded-lg text-sm rounded-tl-none border border-border-light dark:border-border-dark">
+                            <p>I've generated a draft workflow with data ingestion, conditional logic, and email
+                                notification nodes. Check the canvas.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="p-4 bg-surface-light dark:bg-surface-dark border-t border-border-light dark:border-border-dark">
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-3 flex items-center pointer-events-none text-gray-400">
+                        <span class="material-icons-outlined rotate-45 transform">attach_file</span>
+                    </div>
+                    <input
+                        class="w-full pl-10 pr-10 py-3 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-primary focus:border-transparent outline-none text-sm transition-shadow shadow-sm"
+                        placeholder="Type here..." type="text" />
+                    <button class="absolute inset-y-0 right-2 flex items-center text-primary hover:text-blue-600">
+                        <span class="material-icons">arrow_upward</span>
+                    </button>
+                </div>
+            </div>
+        </aside>
+        <section class="flex-1 bg-white dark:bg-[#0f1115] relative overflow-hidden flex flex-col">
+            <div
+                class="absolute top-4 left-1/2 transform -translate-x-1/2 bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark shadow-lg rounded-full px-4 py-2 flex items-center gap-6 z-20">
+                <div class="flex flex-col items-center group cursor-pointer">
+                    <div class="w-4 h-4 bg-node-blue mb-1 rounded-sm"></div>
+                    <span class="text-[10px] text-gray-500 font-medium">Action</span>
+                </div>
+                <div class="flex flex-col items-center group cursor-pointer">
+                    <div class="w-4 h-4 bg-node-yellow mb-1 transform rotate-45 rounded-sm"></div>
+                    <span class="text-[10px] text-gray-500 font-medium">Conditional</span>
+                </div>
+                <div class="flex flex-col items-center group cursor-pointer">
+                    <div class="w-4 h-4 bg-node-green mb-1 rounded-full"></div>
+                    <span class="text-[10px] text-gray-500 font-medium">Result</span>
+                </div>
+                <div class="flex flex-col items-center group cursor-pointer">
+                    <span class="material-icons text-node-purple text-base mb-0.5">notifications</span>
+                    <span class="text-[10px] text-gray-500 font-medium">Notify</span>
+                </div>
+                <div class="flex flex-col items-center group cursor-pointer">
+                    <div class="w-6 h-3 bg-node-grey mb-1.5 rounded-full"></div>
+                    <span class="text-[10px] text-gray-500 font-medium">Code</span>
+                </div>
+                <div class="flex flex-col items-center group cursor-pointer">
+                    <div class="w-4 h-4 bg-node-orange mb-1"
+                        style="clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);"></div>
+                    <span class="text-[10px] text-gray-500 font-medium">Param</span>
+                </div>
+            </div>
+            <div
+                class="flex-1 relative overflow-auto cursor-grab active:cursor-grabbing p-10 bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] dark:bg-[radial-gradient(#374151_1px,transparent_1px)] [background-size:20px_20px]">
+                <div
+                    class="absolute bottom-6 right-[640px] bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-lg shadow-md flex flex-col overflow-hidden z-20 transition-all duration-300">
+                    <button
+                        class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 border-b border-border-light dark:border-border-dark">
+                        <span class="material-icons text-lg">add</span>
+                    </button>
+                    <button class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
+                        <span class="material-icons text-lg">remove</span>
+                    </button>
+                </div>
+                <button
+                    class="absolute bottom-6 right-[520px] bg-white dark:bg-surface-dark text-gray-500 dark:text-gray-300 border-2 border-gray-300 dark:border-gray-600 hover:border-primary hover:text-primary dark:hover:border-primary dark:hover:text-primary font-bold py-2 px-6 rounded-lg shadow-sm transition-colors z-20 text-lg">
+                    Create
+                </button>
+                <div class="relative w-[800px] h-[600px] mx-auto mt-10 opacity-100">
+                    <div
+                        class="absolute top-0 left-0 border-2 border-node-orange bg-white dark:bg-gray-800 p-4 rounded shadow-sm w-32 flex items-center justify-center text-center">
+                        <span class="text-sm font-semibold text-gray-600 dark:text-gray-300">Parameters</span>
+                    </div>
+                    <div
+                        class="absolute top-0 left-64 border-2 border-node-blue bg-white dark:bg-gray-800 w-32 h-20 flex items-center justify-center text-center rounded p-1 z-10 shadow-sm">
+                        <span class="text-xs font-bold text-gray-500 dark:text-gray-400">Base Description</span>
+                    </div>
+                    <div class="absolute top-20 left-[320px] h-8 w-0.5 bg-gray-800 dark:bg-gray-400 z-0"></div>
+                    <div
+                        class="absolute top-[108px] left-[316px] border-t-8 border-t-gray-800 dark:border-t-gray-400 border-x-4 border-x-transparent">
+                    </div>
+                    <div
+                        class="absolute top-28 left-64 border-2 border-node-yellow bg-white dark:bg-gray-800 w-32 h-20 flex items-center justify-center text-center rounded p-1 z-10 shadow-sm">
+                        <span class="text-xs font-bold text-gray-500 dark:text-gray-400">Three Conditions</span>
+                    </div>
+                    <div class="absolute top-[150px] left-[384px] w-8 h-0.5 bg-gray-800 dark:bg-gray-400 z-0"></div>
+                    <div
+                        class="absolute top-[146px] left-[414px] border-l-8 border-l-gray-800 dark:border-l-gray-400 border-y-4 border-y-transparent">
+                    </div>
+                    <div
+                        class="absolute top-28 left-[426px] border-2 border-node-blue bg-white dark:bg-gray-800 w-32 h-20 flex items-center justify-center text-center rounded p-1 z-10 shadow-sm">
+                        <span class="text-xs font-bold text-gray-500 dark:text-gray-400">Process results</span>
+                    </div>
+                    <div class="absolute top-[150px] left-[554px] w-8 h-0.5 bg-gray-800 dark:bg-gray-400 z-0"></div>
+                    <div
+                        class="absolute top-[146px] left-[584px] border-l-8 border-l-gray-800 dark:border-l-gray-400 border-y-4 border-y-transparent">
+                    </div>
+                    <div
+                        class="absolute top-28 left-[596px] border-2 border-node-green bg-white dark:bg-gray-800 w-32 h-20 flex items-center justify-center text-center rounded p-1 z-10 shadow-sm">
+                        <span class="text-xs font-bold text-gray-500 dark:text-gray-400">Export to Excel</span>
+                    </div>
+                    <div class="absolute top-48 left-[320px] h-8 w-0.5 bg-gray-800 dark:bg-gray-400 z-0"></div>
+                    <div
+                        class="absolute top-[220px] left-[316px] border-t-8 border-t-gray-800 dark:border-t-gray-400 border-x-4 border-x-transparent">
+                    </div>
+                    <div
+                        class="absolute top-56 left-64 border-2 border-node-yellow bg-white dark:bg-gray-800 w-32 h-20 flex items-center justify-center text-center rounded p-1 z-10 shadow-sm">
+                        <span class="text-xs font-bold text-gray-500 dark:text-gray-400">Two Conditions</span>
+                    </div>
+                    <div class="absolute top-[260px] left-[384px] w-8 h-0.5 bg-gray-800 dark:bg-gray-400 z-0"></div>
+                    <div
+                        class="absolute top-[256px] left-[414px] border-l-8 border-l-gray-800 dark:border-l-gray-400 border-y-4 border-y-transparent">
+                    </div>
+                    <div
+                        class="absolute top-56 left-[426px] border-2 border-node-green bg-white dark:bg-gray-800 w-32 h-20 flex items-center justify-center text-center rounded p-1 z-10 shadow-sm">
+                        <span class="text-xs font-bold text-gray-500 dark:text-gray-400">Export to Excel</span>
+                    </div>
+                    <div class="absolute top-[260px] left-[554px] w-8 h-0.5 bg-gray-800 dark:bg-gray-400 z-0"></div>
+                    <div
+                        class="absolute top-[256px] left-[584px] border-l-8 border-l-gray-800 dark:border-l-gray-400 border-y-4 border-y-transparent">
+                    </div>
+                    <div
+                        class="absolute top-56 left-[596px] border-2 border-node-purple bg-white dark:bg-gray-800 w-32 h-20 flex items-center justify-center text-center rounded p-1 z-10 shadow-sm">
+                        <span class="text-xs font-bold text-gray-500 dark:text-gray-400">Send Email</span>
+                    </div>
+                    <div class="absolute top-[304px] left-[320px] h-8 w-0.5 bg-gray-800 dark:bg-gray-400 z-0"></div>
+                    <div
+                        class="absolute top-[332px] left-[316px] border-t-8 border-t-gray-800 dark:border-t-gray-400 border-x-4 border-x-transparent">
+                    </div>
+                    <div
+                        class="absolute top-[336px] left-64 border-2 border-primary ring-4 ring-blue-500/20 bg-blue-50 dark:bg-gray-800 w-32 h-20 flex flex-col items-center justify-center text-center rounded p-1 z-30 shadow-lg transform scale-105 transition-all">
+                        <div
+                            class="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-primary text-white text-[10px] px-2 py-0.5 rounded-full font-bold shadow-sm z-40 whitespace-nowrap">
+                            Selected</div>
+                        <span class="text-xs font-bold text-primary dark:text-blue-400">Compare and process</span>
+                        <span class="text-[9px] text-gray-500 mt-1">Python Logic</span>
+                    </div>
+                    <div class="absolute top-[376px] left-[384px] w-8 h-0.5 bg-gray-800 dark:bg-gray-400 z-0"></div>
+                    <div
+                        class="absolute top-[372px] left-[414px] border-l-8 border-l-gray-800 dark:border-l-gray-400 border-y-4 border-y-transparent">
+                    </div>
+                    <div
+                        class="absolute top-[336px] left-[426px] border-2 border-node-blue bg-white dark:bg-gray-800 w-32 h-20 flex items-center justify-center text-center rounded p-1 z-10 shadow-sm opacity-50">
+                        <span class="text-xs font-bold text-gray-500 dark:text-gray-400">Compare and Process</span>
+                    </div>
+                    <div class="absolute top-[376px] left-[554px] w-8 h-0.5 bg-gray-800 dark:bg-gray-400 z-0"></div>
+                    <div
+                        class="absolute top-[372px] left-[584px] border-l-8 border-l-gray-800 dark:border-l-gray-400 border-y-4 border-y-transparent">
+                    </div>
+                    <div
+                        class="absolute top-[336px] left-[596px] border-2 border-node-green bg-white dark:bg-gray-800 w-32 h-20 flex items-center justify-center text-center rounded p-1 z-10 shadow-sm opacity-50">
+                        <span class="text-xs font-bold text-gray-500 dark:text-gray-400">Export to Excel</span>
+                    </div>
+                    <div class="absolute top-[284px] left-[660px] h-[52px] w-0.5 bg-gray-800 dark:bg-gray-400 z-0">
+                    </div>
+                    <div
+                        class="absolute top-[284px] left-[656px] border-b-8 border-b-gray-800 dark:border-b-gray-400 border-x-4 border-x-transparent">
+                    </div>
+                    <div class="absolute top-[416px] left-[320px] h-8 w-0.5 bg-gray-800 dark:bg-gray-400 z-0"></div>
+                    <div
+                        class="absolute top-[444px] left-[316px] border-t-8 border-t-gray-800 dark:border-t-gray-400 border-x-4 border-x-transparent">
+                    </div>
+                    <div
+                        class="absolute top-[448px] left-64 border-2 border-node-green bg-white dark:bg-gray-800 w-32 h-20 flex items-center justify-center text-center rounded p-1 z-10 shadow-sm opacity-50">
+                        <span class="text-xs font-bold text-gray-500 dark:text-gray-400">Export to Excel</span>
+                    </div>
+                    <div class="absolute top-[150px] left-52 w-12 h-0.5 bg-gray-800 dark:bg-gray-400 z-0"></div>
+                    <div class="absolute top-[150px] left-52 h-[226px] w-0.5 bg-gray-800 dark:bg-gray-400 z-0"></div>
+                    <div class="absolute top-[376px] left-52 w-12 h-0.5 bg-gray-800 dark:bg-gray-400 z-0"></div>
+                    <div
+                        class="absolute top-[372px] left-[250px] border-l-8 border-l-gray-800 dark:border-l-gray-400 border-y-4 border-y-transparent">
+                    </div>
+                    <div class="absolute top-[488px] left-[398px] w-[90px] h-0.5 bg-gray-800 dark:bg-gray-400 z-0">
+                    </div>
+                    <div class="absolute top-[416px] left-[488px] h-[73px] w-0.5 bg-gray-800 dark:bg-gray-400 z-0">
+                    </div>
+                    <div
+                        class="absolute top-[416px] left-[484px] border-b-8 border-b-gray-800 dark:border-b-gray-400 border-x-4 border-x-transparent">
+                    </div>
+                </div>
+            </div>
+        </section>
+        <aside
+            class="absolute top-4 bottom-4 right-4 w-[500px] flex flex-col bg-surface-light dark:bg-surface-dark rounded-3xl shadow-overlay z-40 overflow-hidden animate-slide-in border border-border-light dark:border-border-dark">
+            <div
+                class="p-6 border-b border-border-light dark:border-border-dark bg-white dark:bg-gray-800 sticky top-0 z-10 flex justify-between items-start">
+                <div>
+                    <div class="flex items-center gap-2 mb-1.5">
+                        <div class="w-3.5 h-3.5 bg-node-grey rounded-full shadow-sm"></div>
+                        <h3 class="font-bold text-lg dark:text-white tracking-tight">Python Script Node</h3>
+                    </div>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">Configure logic and processing steps.</p>
+                </div>
+                <button class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                    <span class="material-icons">close</span>
+                </button>
+            </div>
+            <div class="flex-1 overflow-y-auto p-6 space-y-6">
+                <div>
+                    <label
+                        class="block text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2.5">
+                        Description / Prompt
+                    </label>
+                    <div
+                        class="w-full p-4 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 shadow-sm min-h-[100px] leading-relaxed">
+                        Process the input dataset, filter for sales &gt; $1000, and format the date column to ISO 8601.
+                    </div>
+                </div>
+                <div class="flex-1 min-h-[250px] flex flex-col">
+                    <div class="flex justify-between items-center mb-2.5">
+                        <label class="block text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                            Logic Code
+                        </label>
+                        <button
+                            class="text-xs text-primary hover:text-blue-700 font-medium flex items-center gap-1 transition-colors">
+                            <span class="material-icons text-[14px]">open_in_new</span> Expand Editor
+                        </button>
+                    </div>
+                    <div
+                        class="w-full bg-[#1e1e1e] rounded-xl overflow-hidden border border-gray-700 shadow-lg flex-1 flex flex-col">
+                        <div class="flex items-center px-4 py-2 bg-[#2d2d2d] border-b border-gray-700 gap-2 shrink-0">
+                            <div class="w-2.5 h-2.5 rounded-full bg-red-500"></div>
+                            <div class="w-2.5 h-2.5 rounded-full bg-yellow-500"></div>
+                            <div class="w-2.5 h-2.5 rounded-full bg-green-500"></div>
+                            <span class="ml-auto text-[11px] text-gray-400 font-mono">process_data.py</span>
+                        </div>
+                        <pre class="flex-1 p-4 text-xs font-mono text-gray-300 overflow-auto leading-relaxed"><code>import pandas as pd
+def process(data):
+    """
+    Main processing function
+    """
+    df = pd.DataFrame(data)
+    # Filter high value sales
+    df = df[df['amount'] &gt; 1000]
+    # Format dates
+    df['date'] = pd.to_datetime(df['date'])
+    return df.to_dict('records')</code></pre>
+                    </div>
+                </div>
+                <div>
+                    <label
+                        class="block text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2.5">
+                        Input / Output Schema
+                    </label>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div
+                            class="border border-border-light dark:border-border-dark rounded-xl bg-white dark:bg-gray-900 overflow-hidden shadow-sm">
+                            <div
+                                class="px-3 py-2 bg-gray-50 dark:bg-gray-800 border-b border-border-light dark:border-border-dark flex justify-between items-center">
+                                <span class="text-xs font-semibold text-gray-600 dark:text-gray-300">Input JSON</span>
+                                <span
+                                    class="text-[9px] uppercase tracking-wider text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">Read-only</span>
+                            </div>
+                            <div class="p-3 font-mono text-xs text-green-600 dark:text-green-400">
+                                { "sales_data": "Array&lt;Object&gt;" }
+                            </div>
+                        </div>
+                        <div
+                            class="border border-border-light dark:border-border-dark rounded-xl bg-white dark:bg-gray-900 overflow-hidden shadow-sm">
+                            <div
+                                class="px-3 py-2 bg-gray-50 dark:bg-gray-800 border-b border-border-light dark:border-border-dark flex justify-between items-center">
+                                <span class="text-xs font-semibold text-gray-600 dark:text-gray-300">Output JSON</span>
+                                <span
+                                    class="text-[9px] uppercase tracking-wider text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">Inferred</span>
+                            </div>
+                            <div class="p-3 font-mono text-xs text-blue-600 dark:text-blue-400">
+                                { "processed_results": "Array&lt;Object&gt;", "count": "Integer" }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <label
+                        class="block text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2.5">
+                        Execution Settings
+                    </label>
+                    <div
+                        class="bg-gray-50 dark:bg-gray-900/50 rounded-xl p-3 border border-border-light dark:border-border-dark space-y-3">
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Timeout (sec)</span>
+                            <input
+                                class="w-20 h-8 text-right text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded-lg focus:ring-2 focus:ring-primary dark:text-white"
+                                type="number" value="30" />
+                        </div>
+                        <div
+                            class="flex items-center justify-between border-t border-gray-200 dark:border-gray-700 pt-3">
+                            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Retry on fail</span>
+                            <div class="relative inline-block w-11 h-6 transition duration-200 ease-in">
+                                <input
+                                    class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer border-gray-300 checked:right-0.5 checked:border-white transition-all duration-300 top-0.5 left-0.5"
+                                    id="toggle" name="toggle" type="checkbox" />
+                                <label
+                                    class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer dark:bg-gray-600 transition-colors duration-300"
+                                    for="toggle"></label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div
+                class="p-6 border-t border-border-light dark:border-border-dark bg-gray-50 dark:bg-gray-900 flex gap-3">
+                <button
+                    class="flex-1 py-2.5 px-4 bg-primary hover:bg-blue-600 text-white rounded-xl text-sm font-semibold shadow-md shadow-blue-500/20 transition-all hover:shadow-lg hover:shadow-blue-500/30">
+                    Save Configuration
+                </button>
+                <button
+                    class="py-2.5 px-6 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl text-sm font-semibold shadow-sm transition-colors">
+                    Test
+                </button>
+            </div>
+        </aside>
+    </main>
+    <script>
+        // Simple toggle for the checkbox visual logic
+        const toggle = document.querySelector('.toggle-checkbox');
+        const label = document.querySelector('.toggle-label');
+        // Initial state logic if needed, ensuring visual consistency
+        toggle.addEventListener('change', function () {
+            if (this.checked) {
+                label.classList.add('bg-primary');
+                label.classList.remove('bg-gray-300', 'dark:bg-gray-600');
+            } else {
+                label.classList.remove('bg-primary');
+                label.classList.add('bg-gray-300', 'dark:bg-gray-600');
+            }
+        });
+    </script>
+
+</body>
+
+</html>
