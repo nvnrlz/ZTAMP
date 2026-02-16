@@ -182,6 +182,11 @@ interface WorkflowContextValue {
     setWorkflowDescription: (desc: string) => void;
     setIsLocked: (locked: boolean) => void;
     markSaved: () => void;
+    setBatchNodesAndEdges: (
+        nodes: Node<WorkflowNodeData>[],
+        edges: Edge[],
+        configs: Record<string, NodeConfig>,
+    ) => void;
 }
 
 export interface SavedWorkflow {
@@ -271,11 +276,11 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
             if (isLocked) {
                 const allowedChanges = changes.filter((c) => c.type === 'select');
                 if (allowedChanges.length > 0) {
-                    setNodes((nds) => applyNodeChanges(allowedChanges, nds));
+                    setNodes((nds) => applyNodeChanges(allowedChanges, nds) as Node<WorkflowNodeData>[]);
                 }
                 return;
             }
-            setNodes((nds) => applyNodeChanges(changes, nds));
+            setNodes((nds) => applyNodeChanges(changes, nds) as Node<WorkflowNodeData>[]);
         },
         [isLocked],
     );
@@ -433,6 +438,21 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         setIsLocked(false);
     }, []);
 
+    const setBatchNodesAndEdges = useCallback(
+        (
+            newNodes: Node<WorkflowNodeData>[],
+            newEdges: Edge[],
+            newConfigs: Record<string, NodeConfig>,
+        ) => {
+            setNodes(newNodes);
+            setEdges(newEdges);
+            setNodeConfigs(newConfigs);
+            setSelectedNodeId(null);
+            setHasUnsavedChanges(true);
+        },
+        [],
+    );
+
     const selectedConfig = selectedNodeId ? nodeConfigs[selectedNodeId] ?? null : null;
 
     return (
@@ -464,6 +484,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
                 setWorkflowDescription,
                 setIsLocked,
                 markSaved,
+                setBatchNodesAndEdges,
             }}
         >
             {children}
