@@ -57,8 +57,12 @@ async def lifespan(app: FastAPI):
         password=os.environ.get("PGPASSWORD"),
     )
 
-    # Initialize Planner Agent
-    planner_agent = PlannerAgent(rag_provider=rag_provider)
+    # Initialize Planner Agent (with LLM config)
+    from planner_agent import LLMConfig
+    planner_agent = PlannerAgent(
+        rag_provider=rag_provider,
+        llm_config=LLMConfig.development(),
+    )
 
     # Initialize Canvas Agent
     canvas_agent = CanvasAgent()
@@ -133,14 +137,16 @@ class ChatRequest(BaseModel):
         default=None,
         description="Filenames explicitly attached by the user"
     )
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Conversation session ID for stateful context tracking"
+    )
 
 
 class ChatResponse(BaseModel):
-    status: str = Field(..., description="'GATHERING_INFO' or 'READY_TO_CREATE'")
-    message_to_user: str = Field(..., description="Agent's response message")
+    message_to_user: str = Field(..., description="Agent's response message with source citations")
     rag_citations: list[str] = Field(default_factory=list, description="Sources used from knowledge base")
-    current_parameters: dict = Field(default_factory=dict, description="Parameters gathered so far")
-    workflow_plan: Optional[dict] = Field(default=None, description="Complete workflow plan when status is READY_TO_CREATE")
+    session_id: str = Field(default="", description="Session ID for conversation continuity")
 
 
 class HealthResponse(BaseModel):
@@ -159,6 +165,10 @@ class CanvasGenerateRequest(BaseModel):
     current_parameters: Optional[dict] = Field(
         default=None,
         description="The extracted parameters (input, task, output)"
+    )
+    attached_files: Optional[list[str]] = Field(
+        default=None,
+        description="File names attached during the planner conversation"
     )
 
 
@@ -205,6 +215,7 @@ async def chat(request: ChatRequest):
             user_message=request.message,
             conversation_history=history,
             attached_files=request.attached_files,
+            session_id=request.session_id,
         )
         return ChatResponse(**response.to_dict())
 
@@ -285,6 +296,7 @@ async def generate_canvas_workflow(request: CanvasGenerateRequest):
         response = canvas_agent.generate_workflow(
             workflow_plan=request.workflow_plan,
             current_parameters=request.current_parameters,
+            attached_files=request.attached_files,
         )
         return CanvasGenerateResponse(**response.to_dict())
 
@@ -294,6 +306,18 @@ async def generate_canvas_workflow(request: CanvasGenerateRequest):
             status_code=500,
             detail=f"Canvas generation failed: {str(e)}",
         )
+
+
+
+@app.get("/api/planner/sessions")
+async def get_sessions():
+    """
+    Get active conversation session stats.
+    Useful for monitoring concurrency and debugging context issues.
+    """
+    if not planner_agent:
+        raise HTTPException(status_code=503, detail="Planner Agent not initialized")
+    return planner_agent.get_session_stats()
 
 
 # ─── Run ────────────────────────────────────────────────

@@ -223,7 +223,7 @@ const NODE_TYPE_MAP: Record<string, string> = {
 };
 
 const NODE_LABEL_MAP: Record<string, string> = {
-    Action: 'New Context Block',
+    Action: 'New Action Block',
     Conditional: 'New Condition',
     Result: 'New Result',
     Notify: 'New Notification',

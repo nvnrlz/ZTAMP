@@ -3,7 +3,7 @@ const multer = require('multer');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
-const { execFile, execSync } = require('child_process');
+const { execFile, execSync, spawn } = require('child_process');
 
 const app = express();
 const PORT = 4000;
@@ -13,6 +13,21 @@ const UPLOAD_DIR = path.join(__dirname, '..', 'uploaded_documents');
 const WORKFLOWS_DIR = path.join(__dirname, '..', 'saved_workflows');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 if (!fs.existsSync(WORKFLOWS_DIR)) fs.mkdirSync(WORKFLOWS_DIR, { recursive: true });
+
+// Scope subdirectories
+const SCOPE_DIRS = {
+    personal: path.join(UPLOAD_DIR, 'Personal'),
+    team: path.join(UPLOAD_DIR, 'Teams'),
+    global: path.join(UPLOAD_DIR, 'Global'),
+};
+Object.values(SCOPE_DIRS).forEach((dir) => {
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+});
+
+// Map scope name to its directory
+function scopeDir(scope) {
+    return SCOPE_DIRS[scope] || SCOPE_DIRS.personal;
+}
 
 // PostgreSQL path for psql commands
 const PG_BIN = '/opt/homebrew/opt/postgresql@16/bin';
@@ -24,10 +39,15 @@ app.use(express.json({ limit: '10mb' }));
 
 // Multer config — save to uploaded_documents/
 const storage = multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
-    filename: (_req, file, cb) => {
-        // Preserve original name; prepend timestamp if collision
-        const target = path.join(UPLOAD_DIR, file.originalname);
+    destination: (req, _file, cb) => {
+        const scope = req.query.scope || 'personal';
+        const dir = scopeDir(scope);
+        cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+        const scope = req.query.scope || 'personal';
+        const dir = scopeDir(scope);
+        const target = path.join(dir, file.originalname);
         if (fs.existsSync(target)) {
             const ext = path.extname(file.originalname);
             const base = path.basename(file.originalname, ext);
@@ -70,12 +90,13 @@ function getVectorizedFiles() {
 
 // ─── Document Upload Routes ──────────────────────────────
 
-// Upload a single file
+// Upload a single file (accepts ?scope=personal|team|global)
 app.post('/api/upload', upload.single('file'), (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'No valid file provided' });
     }
-    console.log(`✓ Uploaded: ${req.file.originalname} → ${req.file.filename}`);
+    const scope = req.query.scope || 'personal';
+    console.log(`✓ Uploaded: ${req.file.originalname} → ${scope}/${req.file.filename}`);
     res.json({
         message: 'File uploaded successfully',
         file: {
@@ -83,37 +104,74 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
             originalName: req.file.originalname,
             size: req.file.size,
             path: req.file.path,
+            scope,
         },
     });
 });
 
-// List uploaded files with vectorization status
-app.get('/api/files', (_req, res) => {
+// List uploaded files with vectorization status, grouped by scope
+app.get('/api/files', (req, res) => {
     const vectorized = getVectorizedFiles();
-    const files = fs.readdirSync(UPLOAD_DIR)
-        .filter((name) => !name.startsWith('.')) // skip hidden files
-        .map((name) => {
-            const stat = fs.statSync(path.join(UPLOAD_DIR, name));
-            return {
-                name,
-                size: stat.size,
-                uploadedAt: stat.mtime.toISOString(),
-                status: vectorized.has(name) ? 'vectorized' : 'uploaded',
-            };
-        });
-    res.json({ files });
+    const requestedScope = req.query.scope; // optional: filter to one scope
+
+    const result = {};
+    const allFiles = [];
+
+    for (const [scope, dir] of Object.entries(SCOPE_DIRS)) {
+        if (requestedScope && requestedScope !== scope) continue;
+        if (!fs.existsSync(dir)) continue;
+
+        const files = fs.readdirSync(dir)
+            .filter((name) => !name.startsWith('.') && !fs.statSync(path.join(dir, name)).isDirectory())
+            .map((name) => {
+                const stat = fs.statSync(path.join(dir, name));
+                const fileObj = {
+                    name,
+                    size: stat.size,
+                    uploadedAt: stat.mtime.toISOString(),
+                    status: vectorized.has(name) ? 'vectorized' : 'uploaded',
+                    scope,
+                };
+                allFiles.push(fileObj);
+                return fileObj;
+            });
+        result[scope] = files;
+    }
+
+    res.json({ files: allFiles, byScope: result });
 });
 
-// Delete a file (also remove its vectors from DB)
+// Delete a file (searches across all scope subdirectories, also removes vectors from DB)
 app.delete('/api/files/:name', (req, res) => {
-    const filePath = path.join(UPLOAD_DIR, req.params.name);
-    if (!fs.existsSync(filePath)) {
+    const fileName = req.params.name;
+    const scope = req.query.scope; // optional: hint which scope to look in
+
+    let filePath = null;
+    if (scope && SCOPE_DIRS[scope]) {
+        const candidate = path.join(SCOPE_DIRS[scope], fileName);
+        if (fs.existsSync(candidate)) filePath = candidate;
+    }
+    // Fallback: search all scopes
+    if (!filePath) {
+        for (const dir of Object.values(SCOPE_DIRS)) {
+            const candidate = path.join(dir, fileName);
+            if (fs.existsSync(candidate)) { filePath = candidate; break; }
+        }
+    }
+    // Legacy: check root upload dir
+    if (!filePath) {
+        const candidate = path.join(UPLOAD_DIR, fileName);
+        if (fs.existsSync(candidate)) filePath = candidate;
+    }
+
+    if (!filePath) {
         return res.status(404).json({ error: 'File not found' });
     }
+
     fs.unlinkSync(filePath);
     // Also clean up vectors from DB
     try {
-        const safeName = req.params.name.replace(/'/g, "''");
+        const safeName = fileName.replace(/'/g, "''");
         execSync(
             `${PSQL} -d vectordb -c "DELETE FROM document_vectors WHERE filename = '${safeName}'"`,
             { encoding: 'utf-8', timeout: 5000 }
@@ -121,35 +179,157 @@ app.delete('/api/files/:name', (req, res) => {
     } catch {
         // Ignore if DB not available
     }
-    console.log(`✗ Deleted: ${req.params.name}`);
+    console.log(`✗ Deleted: ${fileName}`);
     res.json({ message: 'File deleted' });
 });
 
-// Vectorize uploaded documents
+// ─── Vectorization with progress tracking ────────────────
+
+// In-memory job tracker
+const vectorizeJobs = new Map();
+
+// Start vectorization (returns immediately with a job ID)
 app.post('/api/vectorize', (req, res) => {
-    const { files } = req.body;
+    const { files, scope } = req.body;
     const scriptPath = path.join(__dirname, '..', 'scripts', 'vectorize.py');
     const pythonBin = path.join(__dirname, '..', 'venv', 'bin', 'python3');
+    const targetDir = scope ? scopeDir(scope) : UPLOAD_DIR;
 
-    const args = [scriptPath, '--dir', UPLOAD_DIR];
-    if (files && files.length > 0) {
-        args.push('--files', ...files);
+    // Determine which files to process
+    let fileList = files || [];
+    if (fileList.length === 0) {
+        try {
+            fileList = fs.readdirSync(targetDir).filter((f) => {
+                const ext = path.extname(f).toLowerCase();
+                return [
+                    '.pdf', '.docx', '.doc', '.pptx', '.xlsx', '.xls',
+                    '.csv', '.html', '.htm', '.md', '.png', '.jpg', '.jpeg',
+                ].includes(ext);
+            });
+        } catch {
+            fileList = [];
+        }
     }
 
-    console.log(`⚡ Vectorizing ${files ? files.length : 'all'} documents...`);
+    if (fileList.length === 0) {
+        return res.json({ message: 'No files to vectorize', jobId: null });
+    }
 
+    const jobId = `vec_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const job = {
+        status: 'running',
+        total: fileList.length,
+        completed: 0,
+        currentFile: fileList[0],
+        results: [],
+        error: null,
+        startedAt: new Date().toISOString(),
+    };
+    vectorizeJobs.set(jobId, job);
+
+    console.log(`⚡ Vectorize job ${jobId}: ${fileList.length} file(s) from ${scope || 'all scopes'}`);
+
+    // Respond immediately with the job ID
+    res.json({ message: 'Vectorization started', jobId, total: fileList.length });
+
+    // Spawn ONE Python process for ALL files (model loaded once)
+    const args = [scriptPath, '--dir', targetDir, '--files', ...fileList];
     const env = {
         ...process.env,
-        PATH: `${PG_BIN}: ${process.env.PATH}`,
+        PATH: `${PG_BIN}:${process.env.PATH}`,
     };
 
-    execFile(pythonBin, args, { timeout: 300_000, env }, (error, stdout, stderr) => {
-        if (error) {
-            console.error('Vectorize error:', stderr || error.message);
-            return res.status(500).json({ error: stderr || error.message });
+    const proc = spawn(pythonBin, args, {
+        env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 3600_000,  // 1 hour total
+    });
+
+    // Parse JSON progress events from stdout line-by-line
+    let buffer = '';
+    proc.stdout.on('data', (chunk) => {
+        buffer += chunk.toString();
+        const lines = buffer.split('\n');
+        buffer = lines.pop();  // keep incomplete last line in buffer
+
+        for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+                const evt = JSON.parse(line);
+                switch (evt.event) {
+                    case 'file_start':
+                        job.currentFile = evt.file;
+                        job.completed = evt.index;
+                        console.log(`  [${evt.index + 1}/${evt.total}] Processing: ${evt.file}`);
+                        break;
+                    case 'file_done':
+                        job.results.push({ file: evt.file, status: 'success', chunks: evt.chunks, elapsed: evt.elapsed });
+                        job.completed = evt.index + 1;
+                        console.log(`  ✓ ${evt.file} → ${evt.chunks} chunks in ${evt.elapsed}s`);
+                        break;
+                    case 'file_error':
+                        job.results.push({ file: evt.file, status: 'error', error: evt.error });
+                        job.completed = evt.index + 1;
+                        console.error(`  ✗ ${evt.file}: ${evt.error}`);
+                        break;
+                    case 'done':
+                        console.log(`  📊 ${evt.message}: ${evt.processed} vectors from ${evt.chunks || 0} chunks`);
+                        break;
+                    case 'log':
+                        console.log(`  📝 ${evt.message}`);
+                        break;
+                    case 'error':
+                        console.error(`  ❌ ${evt.message}`);
+                        job.error = evt.message;
+                        break;
+                }
+            } catch {
+                // Not JSON — just log it
+                if (line.trim()) console.log(`  [py] ${line}`);
+            }
         }
-        console.log(stdout);
-        res.json({ message: 'Vectorization complete', output: stdout });
+    });
+
+    proc.stderr.on('data', (chunk) => {
+        const msg = chunk.toString().trim();
+        if (msg) console.error(`  [py-err] ${msg}`);
+    });
+
+    proc.on('close', (code) => {
+        job.completed = job.total;
+        job.currentFile = null;
+        if (code !== 0 && !job.error) {
+            job.error = `Python process exited with code ${code}`;
+        }
+        job.status = job.results.some((r) => r.status === 'error')
+            ? 'completed_with_errors'
+            : (job.error ? 'completed_with_errors' : 'completed');
+        console.log(`✅ Vectorize job ${jobId} finished: ${job.results.filter(r => r.status === 'success').length}/${job.total} succeeded`);
+
+        // Clean up old jobs after 10 minutes
+        setTimeout(() => vectorizeJobs.delete(jobId), 600_000);
+    });
+
+    proc.on('error', (err) => {
+        job.error = err.message;
+        job.status = 'completed_with_errors';
+        console.error(`  ❌ Failed to start Python: ${err.message}`);
+    });
+});
+
+// Poll vectorization progress
+app.get('/api/vectorize/status/:jobId', (req, res) => {
+    const job = vectorizeJobs.get(req.params.jobId);
+    if (!job) {
+        return res.status(404).json({ error: 'Job not found' });
+    }
+    res.json({
+        status: job.status,
+        total: job.total,
+        completed: job.completed,
+        currentFile: job.currentFile,
+        results: job.results,
+        startedAt: job.startedAt,
     });
 });
 

@@ -22,8 +22,8 @@ const stateBorderColor: Record<LiveState, string> = {
 };
 
 /**
- * A. Primary (Context) Block — Blue Rectangle
- * Purpose: Initial research and RAG context injection
+ * A. Primary Action Block — Blue Rectangle
+ * Purpose: Initial action, context gathering, and RAG data injection
  */
 const nodeStyle = (isDark: boolean, dimmed?: boolean, liveState: LiveState = 'idle'): CSSProperties => ({
     border: `2px solid ${stateBorderColor[liveState]}`,

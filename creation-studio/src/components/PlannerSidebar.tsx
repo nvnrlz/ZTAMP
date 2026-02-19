@@ -12,9 +12,6 @@ interface Message {
     sender: 'planner' | 'user';
     text: string;
     citations?: string[];
-    status?: 'GATHERING_INFO' | 'READY_TO_CREATE';
-    currentParameters?: Record<string, unknown>;
-    workflowPlan?: WorkflowPlan | null;
     isLoading?: boolean;
 }
 
@@ -42,11 +39,9 @@ interface AttachedFile {
 }
 
 interface PlannerAPIResponse {
-    status: 'GATHERING_INFO' | 'READY_TO_CREATE';
     message_to_user: string;
     rag_citations: string[];
-    current_parameters: Record<string, unknown>;
-    workflow_plan: WorkflowPlan | null;
+    session_id: string;
 }
 
 const PLANNER_API = 'http://localhost:8000/api/planner';
@@ -433,21 +428,53 @@ export default function PlannerSidebar() {
     const { isDark } = useTheme();
     const { setBatchNodesAndEdges, setWorkflowName, setWorkflowDescription } = useWorkflow();
 
+    // ── Utility: strip internal metadata from pillar values ──
+    const cleanPillarValue = (raw: string): string => {
+        if (!raw) return raw;
+        let cleaned = raw.trim();
+        // Remove status icons: ✓ ✗ ~ and labels like "INPUT:", "TASK:", "OUTPUT:"
+        cleaned = cleaned.replace(/^[✓✗~]\s*/u, '');
+        cleaned = cleaned.replace(/^(?:INPUT|TASK|OUTPUT)\s*:\s*/i, '');
+        // Remove trailing metadata: [SET at turn N], [MISSING — ask user]
+        cleaned = cleaned.replace(/\s*\[(?:SET at turn \d+|MISSING.*?)\]\s*$/i, '');
+        return cleaned.trim();
+    };
+
+    // Welcome message constant
+    const welcomeMessage: Message = {
+        id: 1,
+        sender: 'planner',
+        text: "Hello! I'm the **Architect** — your workflow planning assistant. Describe what you want to build and I'll design the workflow for you.\n\nI can also reference documents you've uploaded to the knowledge base.",
+    };
+
     // State
-    const [messages, setMessages] = useState<Message[]>([
-        {
-            id: 1,
-            sender: 'planner',
-            text: "Hello! I'm the **Architect** — your workflow planning assistant. Describe what you want to build and I'll design the workflow for you.\n\nI can also reference documents you've uploaded to the knowledge base.",
-        },
-    ]);
+    const [messages, setMessages] = useState<Message[]>([welcomeMessage]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [conversationHistory, setConversationHistory] = useState<ConversationEntry[]>([]);
     const [showAttachModal, setShowAttachModal] = useState(false);
     const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+    const [allSessionFiles, setAllSessionFiles] = useState<string[]>([]);
     const [backendHealthy, setBackendHealthy] = useState(true);
     const [isGenerating, setIsGenerating] = useState(false);
+
+    // Generate a unique session ID per conversation — mutable so it resets per workflow
+    const generateSessionId = () =>
+        'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+    const [sessionId, setSessionId] = useState<string>(generateSessionId);
+
+    // ── Start a fresh conversation (reset all state) ──
+    const startNewConversation = () => {
+        msgIdCounter = 2;  // reset ID counter
+        setMessages([{ ...welcomeMessage }]);
+        setConversationHistory([]);
+        setAttachedFiles([]);
+        setAllSessionFiles([]);
+        setSessionId(generateSessionId());
+        setIsLoading(false);
+        setIsGenerating(false);
+        setInput('');
+    };
 
     const chatEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -506,6 +533,7 @@ export default function PlannerSidebar() {
                     attached_files: attachedFiles.length > 0
                         ? attachedFiles.map(f => f.name)
                         : null,
+                    session_id: sessionId,
                 }),
             });
 
@@ -516,17 +544,15 @@ export default function PlannerSidebar() {
 
             const data: PlannerAPIResponse = await response.json();
 
+            // Show all RAG citations from the response
+            const citations = data.rag_citations.length > 0 ? data.rag_citations : undefined;
+
             // Replace loading message with the real response
             const agentMsg: Message = {
                 id: loadingId,
                 sender: 'planner',
                 text: data.message_to_user,
-                citations: data.rag_citations.length > 0 ? data.rag_citations : undefined,
-                status: data.status,
-                currentParameters: Object.keys(data.current_parameters).length > 0
-                    ? data.current_parameters
-                    : undefined,
-                workflowPlan: data.workflow_plan,
+                citations,
             };
 
             setMessages(prev => prev.map(m => m.id === loadingId ? agentMsg : m));
@@ -539,6 +565,11 @@ export default function PlannerSidebar() {
 
             // Clear attached files after sending
             if (attachedFiles.length > 0) {
+                // Track all files across the session for canvas agent
+                setAllSessionFiles(prev => {
+                    const newNames = attachedFiles.map(f => f.name);
+                    return [...new Set([...prev, ...newNames])];
+                });
                 setAttachedFiles([]);
             }
 
@@ -592,17 +623,16 @@ export default function PlannerSidebar() {
         }]);
 
         try {
-            // Find the most recent READY_TO_CREATE message to get current_parameters
-            const readyMsg = [...messages].reverse().find(
-                m => m.status === 'READY_TO_CREATE' && m.currentParameters
-            );
+            // Use the plan's extracted_parameters directly
+            const currentParams = plan.extracted_parameters || null;
 
             const res = await fetch(`${CANVAS_API}/generate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     workflow_plan: plan,
-                    current_parameters: readyMsg?.currentParameters || null,
+                    current_parameters: currentParams,
+                    attached_files: allSessionFiles.length > 0 ? allSessionFiles : null,
                 }),
             });
 
@@ -639,6 +669,12 @@ export default function PlannerSidebar() {
                             : m
                     )
                 );
+
+                // Auto-reset conversation state so next workflow starts fresh.
+                // We keep the success message visible but clear the backend state.
+                setConversationHistory([]);
+                setAllSessionFiles([]);
+                setSessionId(generateSessionId());
             } else {
                 throw new Error(data.message || 'Canvas generation failed');
             }
@@ -703,10 +739,39 @@ export default function PlannerSidebar() {
                     </span>
                     Planner Agent
                 </h2>
-                <span style={badge(isDark)}>
-                    <span style={statusDot(backendHealthy)} />
-                    {backendHealthy ? 'Online' : 'Offline'}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button
+                        onClick={startNewConversation}
+                        title="Start new workflow"
+                        style={{
+                            background: isDark ? 'rgba(99,102,241,0.15)' : 'rgba(99,102,241,0.1)',
+                            border: `1px solid ${isDark ? 'rgba(99,102,241,0.3)' : 'rgba(99,102,241,0.2)'}`,
+                            borderRadius: 6,
+                            padding: '3px 8px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            fontSize: 10,
+                            fontWeight: 600,
+                            color: isDark ? '#a5b4fc' : '#6366f1',
+                            transition: 'all 0.15s ease',
+                        }}
+                        onMouseEnter={e => {
+                            e.currentTarget.style.background = isDark ? 'rgba(99,102,241,0.25)' : 'rgba(99,102,241,0.2)';
+                        }}
+                        onMouseLeave={e => {
+                            e.currentTarget.style.background = isDark ? 'rgba(99,102,241,0.15)' : 'rgba(99,102,241,0.1)';
+                        }}
+                    >
+                        <span className="material-icons" style={{ fontSize: 13 }}>add</span>
+                        New
+                    </button>
+                    <span style={badge(isDark)}>
+                        <span style={statusDot(backendHealthy)} />
+                        {backendHealthy ? 'Online' : 'Offline'}
+                    </span>
+                </div>
             </div>
 
             {/* Chat messages */}
@@ -766,154 +831,10 @@ export default function PlannerSidebar() {
                                             </div>
                                         )}
 
-                                        {/* Workflow Requirements — Input / Task / Output */}
-                                        {m.currentParameters && Object.keys(m.currentParameters).length > 0 && (() => {
-                                            const params = m.currentParameters!;
-                                            const inputVal = String(params.input ?? params.input_source ?? '');
-                                            const taskVal = String(params.task ?? params.goal ?? '');
-                                            const outputVal = String(params.output ?? params.output_format ?? '');
 
-                                            const pillars = [
-                                                {
-                                                    key: 'input',
-                                                    label: 'INPUT',
-                                                    icon: 'download',
-                                                    bg: isDark ? 'rgba(59,130,246,0.15)' : '#dbeafe',
-                                                    iconColor: isDark ? '#60a5fa' : '#3b82f6',
-                                                    value: inputVal,
-                                                },
-                                                {
-                                                    key: 'task',
-                                                    label: 'TASK',
-                                                    icon: 'settings',
-                                                    bg: isDark ? 'rgba(168,85,247,0.15)' : '#f3e8ff',
-                                                    iconColor: isDark ? '#c084fc' : '#9333ea',
-                                                    value: taskVal,
-                                                },
-                                                {
-                                                    key: 'output',
-                                                    label: 'OUTPUT',
-                                                    icon: 'upload',
-                                                    bg: isDark ? 'rgba(34,197,94,0.15)' : '#dcfce7',
-                                                    iconColor: isDark ? '#4ade80' : '#16a34a',
-                                                    value: outputVal,
-                                                },
-                                            ];
 
-                                            return (
-                                                <div style={parameterPanel(isDark)}>
-                                                    <div style={{
-                                                        fontSize: 9.5,
-                                                        fontWeight: 700,
-                                                        textTransform: 'uppercase',
-                                                        letterSpacing: '0.06em',
-                                                        color: isDark ? '#60a5fa' : '#3b82f6',
-                                                        marginBottom: 6,
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: 5,
-                                                    }}>
-                                                        <span className="material-icons" style={{ fontSize: 12 }}>checklist</span>
-                                                        Workflow Requirements
-                                                    </div>
-                                                    {pillars.map((p, idx) => {
-                                                        const filled = !!p.value && p.value !== 'null' && p.value !== 'Not yet specified' && p.value !== 'undefined' && p.value !== '' && !p.value.startsWith('NOT FOUND');
-                                                        const isLast = idx === pillars.length - 1;
-                                                        return (
-                                                            <div
-                                                                key={p.key}
-                                                                style={{
-                                                                    ...pillarSection(isDark, filled),
-                                                                    ...(isLast ? { borderBottom: 'none', paddingBottom: 4 } : {}),
-                                                                }}
-                                                            >
-                                                                <div style={{
-                                                                    ...pillarIcon,
-                                                                    backgroundColor: p.bg,
-                                                                }}>
-                                                                    <span
-                                                                        className="material-icons"
-                                                                        style={{ fontSize: 14, color: p.iconColor }}
-                                                                    >
-                                                                        {p.icon}
-                                                                    </span>
-                                                                </div>
-                                                                <div style={{ flex: 1, minWidth: 0 }}>
-                                                                    <div style={pillarLabel(isDark)}>
-                                                                        {p.label}
-                                                                    </div>
-                                                                    <div style={pillarValue(isDark, filled)}>
-                                                                        {filled ? p.value : 'Not yet specified'}
-                                                                    </div>
-                                                                </div>
-                                                                {filled && (
-                                                                    <span
-                                                                        className="material-icons"
-                                                                        style={{
-                                                                            fontSize: 14,
-                                                                            color: isDark ? '#22c55e' : '#16a34a',
-                                                                            marginTop: 2,
-                                                                            flexShrink: 0,
-                                                                        }}
-                                                                    >
-                                                                        check_circle
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                            );
-                                        })()}
 
-                                        {/* READY_TO_CREATE banner */}
-                                        {m.status === 'READY_TO_CREATE' && m.workflowPlan && (
-                                            <div style={readyBanner(isDark)}>
-                                                <span
-                                                    className="material-icons"
-                                                    style={{ fontSize: 20, color: '#22c55e' }}
-                                                >
-                                                    check_circle
-                                                </span>
-                                                <div>
-                                                    <div style={{
-                                                        fontSize: 12,
-                                                        fontWeight: 700,
-                                                        color: isDark ? '#86efac' : '#166534',
-                                                    }}>
-                                                        Workflow Ready
-                                                    </div>
-                                                    <div style={{
-                                                        fontSize: 11,
-                                                        color: isDark ? '#6ee7b7' : '#15803d',
-                                                        marginTop: 2,
-                                                    }}>
-                                                        {m.workflowPlan.steps.length} steps · {m.workflowPlan.goal}
-                                                    </div>
-                                                </div>
-                                                <button
-                                                    style={{
-                                                        ...createBtn,
-                                                        opacity: isGenerating ? 0.6 : 1,
-                                                        cursor: isGenerating ? 'wait' : 'pointer',
-                                                    }}
-                                                    disabled={isGenerating}
-                                                    onClick={() => handleCreateWorkflow(m.workflowPlan!)}
-                                                    onMouseEnter={e => {
-                                                        if (!isGenerating) {
-                                                            e.currentTarget.style.transform = 'scale(1.03)';
-                                                            e.currentTarget.style.boxShadow = '0 4px 12px rgba(34,197,94,0.4)';
-                                                        }
-                                                    }}
-                                                    onMouseLeave={e => {
-                                                        e.currentTarget.style.transform = 'scale(1)';
-                                                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(34,197,94,0.3)';
-                                                    }}
-                                                >
-                                                    {isGenerating ? 'Generating…' : 'Create Plan →'}
-                                                </button>
-                                            </div>
-                                        )}
+
                                     </>
                                 )}
                             </div>

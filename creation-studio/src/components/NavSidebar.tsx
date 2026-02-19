@@ -6,6 +6,7 @@ import { colors, shadows, fonts } from '../theme';
 const navItems = [
     { path: '/', label: 'Creation Studio', icon: 'auto_awesome' },
     { path: '/workflows', label: 'Workflow Library', icon: 'library_books' },
+    { path: '/policy-creator', label: 'Policy Creator', icon: 'add_moderator' },
     { path: '/audit-log', label: 'Audit Log', icon: 'assignment' },
     { path: '/settings', label: 'Settings & Upload', icon: 'settings' },
 ];

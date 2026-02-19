@@ -7,6 +7,7 @@ import CreationStudioPage from './pages/CreationStudioPage';
 import SettingsPage from './pages/SettingsPage';
 import WorkflowsPage from './pages/WorkflowsPage';
 import AuditLogPage from './pages/AuditLogPage';
+import PolicyCreatorPage from './pages/PolicyCreatorPage';
 
 const appStyle = (isDark: boolean): CSSProperties => ({
   backgroundColor: isDark ? colors.backgroundDark : colors.backgroundLight,
@@ -30,6 +31,7 @@ export default function App() {
         <Route path="/workflows" element={<WorkflowsPage />} />
         <Route path="/audit-log" element={<AuditLogPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/policy-creator" element={<PolicyCreatorPage />} />
       </Routes>
     </div>
   );

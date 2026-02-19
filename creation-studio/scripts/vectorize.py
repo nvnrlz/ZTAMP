@@ -3,96 +3,62 @@
 vectorize.py — Convert uploaded documents into vector embeddings
 and store them in PostgreSQL with pgvector.
 
-Supported formats: PDF, DOCX, XLSX/XLS
+Uses a hybrid processing pipeline:
+- Lightweight native Python for simple formats (XLSX, CSV, DOCX, MD)
+- Docling (IBM DS4SD) for complex formats (PDF, images, PPTX, HTML)
+
+Outputs JSON progress events to stdout for real-time tracking.
 
 Usage:
   python3 vectorize.py --dir ./uploaded_documents
   python3 vectorize.py --dir ./uploaded_documents --files doc1.pdf doc2.docx
+  python3 vectorize.py --dir ./uploaded_documents --clear  # clear old vectors first
 """
 
 import argparse
+import json
 import os
 import sys
 import hashlib
+import logging
+import time
 from pathlib import Path
 
-# ─── Lazy imports (installed by setup) ─────────────────────
+logger = logging.getLogger("vectorize")
+
+
+def emit(event_type: str, **kwargs):
+    """Emit a JSON progress event to stdout for the Node.js server to parse."""
+    payload = {"event": event_type, **kwargs}
+    print(json.dumps(payload), flush=True)
+
+
+# ─── Lazy imports ─────────────────────────────────────────
+
 def ensure_imports():
-    """Import dependencies; print helpful message if missing."""
-    global psycopg2, PyPDF2, Document, openpyxl, SentenceTransformer
+    """Import heavy dependencies; print helpful message if missing."""
+    global psycopg2, SentenceTransformer, process_file, is_supported
     try:
-        import psycopg2
-        import PyPDF2
-        from docx import Document
-        import openpyxl
-        from sentence_transformers import SentenceTransformer
-    except ImportError as e:
-        print(f"Missing dependency: {e.name}")
-        print("Install with:  pip3 install psycopg2-binary PyPDF2 python-docx openpyxl sentence-transformers")
+        import psycopg2 as _psycopg2
+        psycopg2 = _psycopg2
+    except ImportError:
+        emit("error", message="Missing dependency: psycopg2-binary")
         sys.exit(1)
 
+    try:
+        from sentence_transformers import SentenceTransformer as _ST
+        SentenceTransformer = _ST
+    except ImportError:
+        emit("error", message="Missing dependency: sentence-transformers")
+        sys.exit(1)
 
-# ─── Text extraction ──────────────────────────────────────
-
-def extract_pdf(path: str) -> str:
-    reader = PyPDF2.PdfReader(path)
-    texts = []
-    for page in reader.pages:
-        t = page.extract_text()
-        if t:
-            texts.append(t)
-    return "\n".join(texts)
-
-
-def extract_docx(path: str) -> str:
-    doc = Document(path)
-    return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
-
-
-def extract_xlsx(path: str) -> str:
-    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-    lines = []
-    for sheet in wb.sheetnames:
-        ws = wb[sheet]
-        lines.append(f"--- Sheet: {sheet} ---")
-        for row in ws.iter_rows(values_only=True):
-            line = "\t".join(str(c) if c is not None else "" for c in row)
-            if line.strip():
-                lines.append(line)
-    return "\n".join(lines)
-
-
-EXTRACTORS = {
-    ".pdf": extract_pdf,
-    ".docx": extract_docx,
-    ".doc": extract_docx,  # best-effort via python-docx
-    ".xlsx": extract_xlsx,
-    ".xls": extract_xlsx,
-}
-
-
-def extract_text(filepath: str) -> str:
-    ext = Path(filepath).suffix.lower()
-    extractor = EXTRACTORS.get(ext)
-    if not extractor:
-        print(f"  ⚠ Unsupported format: {ext}")
-        return ""
-    return extractor(filepath)
-
-
-# ─── Chunking ─────────────────────────────────────────────
-
-def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
-    """Split text into overlapping chunks of ~chunk_size words."""
-    words = text.split()
-    chunks = []
-    i = 0
-    while i < len(words):
-        chunk = " ".join(words[i : i + chunk_size])
-        if chunk.strip():
-            chunks.append(chunk)
-        i += chunk_size - overlap
-    return chunks if chunks else [text[:2000]]  # fallback: first 2000 chars
+    try:
+        from docling_processor import process_file as _pf, is_supported as _is
+        process_file = _pf
+        is_supported = _is
+    except ImportError:
+        emit("error", message="Missing dependency: docling_processor")
+        sys.exit(1)
 
 
 # ─── Database ─────────────────────────────────────────────
@@ -132,27 +98,64 @@ def setup_database(conn):
             CREATE INDEX IF NOT EXISTS idx_doc_vectors_filename
             ON document_vectors(filename);
         """)
+        # ── Add page_number column if it doesn't exist ──
+        cur.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'document_vectors'
+                    AND column_name = 'page_number'
+                ) THEN
+                    ALTER TABLE document_vectors
+                    ADD COLUMN page_number INTEGER DEFAULT NULL;
+                END IF;
+            END
+            $$;
+        """)
     conn.commit()
-    print("✓ Database schema ready (pgvector)")
+    emit("log", message="Database schema ready (pgvector)")
 
 
-def insert_vectors(conn, filename: str, chunks: list[str], embeddings):
-    """Insert chunk vectors, skip duplicates."""
+def clear_file_vectors(conn, filename: str):
+    """Remove all existing vectors for a specific file (for re-indexing)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM document_vectors WHERE filename = %s",
+            (filename,),
+        )
+        deleted = cur.rowcount
+    conn.commit()
+    if deleted > 0:
+        emit("log", message=f"Cleared {deleted} old vector(s) for {filename}")
+    return deleted
+
+
+def insert_vectors(
+    conn,
+    filename: str,
+    chunks: list[dict],
+    embeddings,
+):
+    """Insert chunk vectors into PostgreSQL. Skips duplicates."""
     inserted = 0
     with conn.cursor() as cur:
         for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
-            content_hash = hashlib.sha256(chunk.encode()).hexdigest()
+            content = chunk["text"]
+            page_number = chunk.get("page_number", None)
+            content_hash = hashlib.sha256(content.encode()).hexdigest()
             try:
                 cur.execute(
-                    """INSERT INTO document_vectors (filename, chunk_index, content, content_hash, embedding)
-                       VALUES (%s, %s, %s, %s, %s)
+                    """INSERT INTO document_vectors
+                       (filename, chunk_index, content, content_hash, embedding, page_number)
+                       VALUES (%s, %s, %s, %s, %s, %s)
                        ON CONFLICT (content_hash) DO NOTHING""",
-                    (filename, i, chunk, content_hash, emb.tolist()),
+                    (filename, i, content, content_hash, emb.tolist(), page_number),
                 )
                 if cur.rowcount > 0:
                     inserted += 1
             except Exception as e:
-                print(f"  ⚠ Chunk {i} insert error: {e}")
+                emit("log", message=f"Chunk {i} insert error: {e}")
                 conn.rollback()
     conn.commit()
     return inserted
@@ -161,16 +164,29 @@ def insert_vectors(conn, filename: str, chunks: list[str], embeddings):
 # ─── Main ─────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="Vectorize documents into PostgreSQL")
+    parser = argparse.ArgumentParser(
+        description="Vectorize documents into PostgreSQL using Docling"
+    )
     parser.add_argument("--dir", required=True, help="Directory containing documents")
     parser.add_argument("--files", nargs="*", help="Specific files to vectorize (optional)")
+    parser.add_argument(
+        "--clear", action="store_true",
+        help="Clear old vectors for each file before re-indexing"
+    )
     args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.WARNING,  # Suppress verbose logging to keep stdout clean for JSON
+        format="%(asctime)s │ %(name)-15s │ %(levelname)-5s │ %(message)s",
+        datefmt="%H:%M:%S",
+        stream=sys.stderr,  # Logs to stderr, JSON events to stdout
+    )
 
     ensure_imports()
 
     doc_dir = Path(args.dir)
     if not doc_dir.exists():
-        print(f"Error: Directory not found: {doc_dir}")
+        emit("error", message=f"Directory not found: {doc_dir}")
         sys.exit(1)
 
     # Determine which files to process
@@ -178,54 +194,66 @@ def main():
         file_paths = [doc_dir / f for f in args.files if (doc_dir / f).exists()]
     else:
         file_paths = [
-            p for p in doc_dir.iterdir()
-            if p.suffix.lower() in EXTRACTORS and p.is_file()
+            p for p in sorted(doc_dir.iterdir())
+            if p.is_file() and is_supported(str(p))
         ]
 
     if not file_paths:
-        print("No documents found to vectorize.")
+        emit("done", total=0, processed=0, message="No supported documents found")
         return
 
-    print(f"\n📄 Found {len(file_paths)} document(s) to vectorize")
+    emit("init", total=len(file_paths), message=f"Found {len(file_paths)} document(s)")
 
-    # Load embedding model
-    print("🔄 Loading embedding model (all-MiniLM-L6-v2)...")
+    # Load embedding model (this is the slow part — ~10-30s on first run)
+    emit("log", message="Loading embedding model (all-MiniLM-L6-v2)...")
+    t0 = time.time()
     model = SentenceTransformer("all-MiniLM-L6-v2")
+    emit("log", message=f"Model loaded in {time.time() - t0:.1f}s")
 
     # Database connection
-    print("🔌 Connecting to PostgreSQL...")
+    emit("log", message="Connecting to PostgreSQL...")
     conn = get_connection()
     setup_database(conn)
 
     total_chunks = 0
     total_inserted = 0
 
-    for fp in file_paths:
-        print(f"\n── Processing: {fp.name}")
+    for idx, fp in enumerate(file_paths):
+        file_start = time.time()
+        emit("file_start", index=idx, total=len(file_paths), file=fp.name)
 
-        # Extract text
-        text = extract_text(str(fp))
-        if not text.strip():
-            print("  ⚠ No text extracted, skipping.")
+        # Optionally clear old vectors
+        if args.clear:
+            clear_file_vectors(conn, fp.name)
+
+        # ── Step 1: Extract + chunk (lightweight or Docling) ──
+        try:
+            chunks = process_file(str(fp))
+        except Exception as e:
+            emit("file_error", index=idx, file=fp.name, error=str(e))
             continue
 
-        # Chunk
-        chunks = chunk_text(text)
-        print(f"  📝 {len(chunks)} chunk(s)")
+        if not chunks:
+            emit("file_error", index=idx, file=fp.name, error="No content extracted")
+            continue
 
-        # Embed
-        embeddings = model.encode(chunks, show_progress_bar=False)
-        print(f"  🧠 Embedded ({EMBEDDING_DIM}-dim vectors)")
+        # ── Step 2: Generate embeddings ──
+        chunk_texts = [c["text"] for c in chunks]
+        embeddings = model.encode(chunk_texts, show_progress_bar=False)
 
-        # Store
+        # ── Step 3: Store in PostgreSQL ──
         inserted = insert_vectors(conn, fp.name, chunks, embeddings)
-        print(f"  💾 {inserted} new vector(s) stored")
+
+        elapsed = time.time() - file_start
+        emit("file_done", index=idx, file=fp.name,
+             chunks=len(chunks), inserted=inserted, elapsed=round(elapsed, 1))
 
         total_chunks += len(chunks)
         total_inserted += inserted
 
     conn.close()
-    print(f"\n✅ Done! {total_inserted}/{total_chunks} chunks vectorized and stored.\n")
+    emit("done", total=len(file_paths), processed=total_inserted,
+         chunks=total_chunks, message="Vectorization complete")
 
 
 if __name__ == "__main__":

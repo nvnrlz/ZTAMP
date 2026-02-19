@@ -16,7 +16,7 @@ import { colors, shadows, fonts } from '../theme';
 
 /* ─── Node type → friendly labels & icons ─── */
 const NODE_TYPE_META: Record<string, { label: string; icon: string; color: string }> = {
-    actionNode: { label: 'Context Block', icon: 'search', color: colors.nodeBlue },
+    actionNode: { label: 'Action Block', icon: 'search', color: colors.nodeBlue },
     conditionalNode: { label: 'Conditional', icon: 'call_split', color: colors.nodeYellow },
     resultNode: { label: 'Result Block', icon: 'description', color: colors.nodeGreen },
     notifyNode: { label: 'Notification', icon: 'notifications', color: colors.nodePurple },
@@ -390,31 +390,49 @@ function ContextProperties({
                         No sources added yet — click "Add Source"
                     </div>
                 )}
-                {config.contextSources.map((src, i) => (
-                    <div key={i} style={sourceChip(isDark)}>
-                        <span className="material-icons" style={{ fontSize: 16, color: colors.nodeBlue }}>source</span>
-                        <input
-                            style={{ ...inputStyle(isDark), border: 'none', boxShadow: 'none', padding: '4px 0', flex: 1, backgroundColor: 'transparent' }}
-                            value={src}
-                            onChange={(e) => updateSource(i, e.target.value)}
-                            placeholder={`Document / DB source ${i + 1}`}
-                        />
-                        <button
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex' }}
-                            onClick={() => removeSource(i)}
-                        >
-                            <span className="material-icons" style={{ fontSize: 16, color: '#ef4444' }}>close</span>
-                        </button>
-                    </div>
-                ))}
+                {config.contextSources.map((src, i) => {
+                    // Detect if this source is a file (has an extension)
+                    const isFile = /\.[a-zA-Z0-9]{2,5}$/.test(src);
+                    const fileExt = isFile ? src.split('.').pop()?.toUpperCase() : null;
+                    const fileIcon = isFile ? 'description' : 'source';
+                    const fileColor = isFile ? '#f97316' : colors.nodeBlue;
+
+                    return (
+                        <div key={i} style={sourceChip(isDark)}>
+                            <span className="material-icons" style={{ fontSize: 16, color: fileColor }}>{fileIcon}</span>
+                            {isFile && fileExt && (
+                                <span style={{
+                                    fontSize: 9, fontWeight: 700, color: '#fff',
+                                    backgroundColor: fileColor, padding: '1px 5px',
+                                    borderRadius: 4, textTransform: 'uppercase',
+                                    letterSpacing: '0.03em', flexShrink: 0,
+                                }}>
+                                    {fileExt}
+                                </span>
+                            )}
+                            <input
+                                style={{ ...inputStyle(isDark), border: 'none', boxShadow: 'none', padding: '4px 0', flex: 1, backgroundColor: 'transparent' }}
+                                value={src}
+                                onChange={(e) => updateSource(i, e.target.value)}
+                                placeholder={`Document / DB source ${i + 1}`}
+                            />
+                            <button
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex' }}
+                                onClick={() => removeSource(i)}
+                            >
+                                <span className="material-icons" style={{ fontSize: 16, color: '#ef4444' }}>close</span>
+                            </button>
+                        </div>
+                    );
+                })}
             </div>
             <div>
-                <label style={sectionLabel(isDark)}>Research Query</label>
+                <label style={sectionLabel(isDark)}>Task Instructions</label>
                 <textarea
                     style={textareaStyle(isDark)}
                     value={config.query}
                     onChange={(e) => update({ contextConfig: { ...config, query: e.target.value } })}
-                    placeholder="e.g., Fetch all sales data from Q4 2024 for the APAC region..."
+                    placeholder="e.g., Fetch all sales data from Q4 2024 for the APAC region and analyze trends..."
                 />
             </div>
         </>
@@ -914,14 +932,14 @@ export default function NodeConfigPanel() {
 
                 <div style={sectionDivider(isDark)} />
 
-                {/* ─── Common: I/O Schema (hidden for Param blocks) ─── */}
+                {/* ─── Common: I/O Flow (hidden for Param blocks) ─── */}
                 {cfg.nodeType !== 'paramNode' && (
                     <div>
-                        <label style={sectionLabel(isDark)}>Input / Output Schema</label>
+                        <label style={sectionLabel(isDark)}>Data Flow</label>
                         <div style={schemaGrid}>
                             <div style={schemaCard(isDark)}>
                                 <div style={schemaCardHeader(isDark)}>
-                                    <span style={schemaTitle(isDark)}>Input JSON</span>
+                                    <span style={schemaTitle(isDark)}>Receives From</span>
                                     <span style={schemaBadge(isDark)}>Editable</span>
                                 </div>
                                 <textarea
@@ -932,7 +950,7 @@ export default function NodeConfigPanel() {
                             </div>
                             <div style={schemaCard(isDark)}>
                                 <div style={schemaCardHeader(isDark)}>
-                                    <span style={schemaTitle(isDark)}>Output JSON</span>
+                                    <span style={schemaTitle(isDark)}>Passes To</span>
                                     <span style={schemaBadge(isDark)}>Editable</span>
                                 </div>
                                 <textarea

@@ -16,7 +16,7 @@ interface UploadedFile {
 }
 
 const ACCEPTED = '.pdf,.doc,.docx,.xls,.xlsx,.csv,.md,.txt,.json';
-const ACCEPTED_TYPES = [
+const _ACCEPTED_TYPES: string[] = [
     'application/pdf',
     'application/msword',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -441,32 +441,23 @@ const uploadScopeSelect = (isDark: boolean): CSSProperties => ({
 
 function FileLibraryTab() {
     const { isDark } = useTheme();
-    const { files: libraryFiles, getFilesByScope, addFile, removeFile } = useFileLibrary();
+    const { getFilesByScope, removeFile, refreshFiles, loading } = useFileLibrary();
     const [activeScope, setActiveScope] = useState<LibraryScope>('personal');
     const [uploadScope, setUploadScope] = useState<LibraryScope>('personal');
 
-    // Legacy upload state (for backend uploads)
-    const [backendFiles, setBackendFiles] = useState<UploadedFile[]>([]);
     const [dragActive, setDragActive] = useState(false);
     const [sizeError, setSizeError] = useState('');
+    const [uploadingNames, setUploadingNames] = useState<Set<string>>(new Set());
     const inputRef = useRef<HTMLInputElement>(null);
 
-    // Load files from backend on mount
-    useEffect(() => {
-        fetch('http://localhost:4000/api/files')
-            .then((res) => res.json())
-            .then((data: { files: Array<{ name: string; size: number; uploadedAt: string; status: string }> }) => {
-                const loaded: UploadedFile[] = data.files.map((f) => ({
-                    name: f.name,
-                    size: f.size,
-                    type: '',
-                    uploadedAt: new Date(f.uploadedAt).toLocaleString(),
-                    status: (f.status as UploadedFile['status']) || 'uploaded',
-                }));
-                setBackendFiles(loaded);
-            })
-            .catch(() => { /* server may not be running */ });
-    }, []);
+    // Vectorization progress state
+    const [vecJobId, setVecJobId] = useState<string | null>(null);
+    const [vecProgress, setVecProgress] = useState<{
+        status: string;
+        total: number;
+        completed: number;
+        currentFile: string | null;
+    } | null>(null);
 
     const handleFiles = useCallback((incoming: FileList | null) => {
         if (!incoming) return;
@@ -478,46 +469,37 @@ function FileLibraryTab() {
                 continue;
             }
 
-            // Add to FileLibrary context in selected scope
-            addFile({
-                name: f.name,
-                size: f.size,
-                type: f.type || 'application/octet-stream',
-                scope: uploadScope,
-                uploadedBy: 'You',
-            });
+            // Track that this file is uploading
+            setUploadingNames((prev) => new Set(prev).add(f.name));
 
-            // Also upload to backend
+            // Upload to backend with scope query parameter
             const formData = new FormData();
             formData.append('file', f);
 
-            const entry: UploadedFile = {
-                name: f.name,
-                size: f.size,
-                type: f.type,
-                uploadedAt: new Date().toLocaleString(),
-                status: 'uploading',
-            };
-
-            setBackendFiles((prev) => {
-                if (prev.some((x) => x.name === f.name)) return prev;
-                return [...prev, entry];
-            });
-
-            fetch('http://localhost:4000/api/upload', { method: 'POST', body: formData })
+            fetch(`http://localhost:4000/api/upload?scope=${uploadScope}`, {
+                method: 'POST',
+                body: formData,
+            })
                 .then((res) => res.json())
                 .then(() => {
-                    setBackendFiles((prev) =>
-                        prev.map((x) => (x.name === f.name ? { ...x, status: 'uploaded' } : x)),
-                    );
+                    // Refresh files from backend to see the new file
+                    refreshFiles();
+                    setUploadingNames((prev) => {
+                        const next = new Set(prev);
+                        next.delete(f.name);
+                        return next;
+                    });
                 })
                 .catch(() => {
-                    setBackendFiles((prev) =>
-                        prev.map((x) => (x.name === f.name ? { ...x, status: 'error' } : x)),
-                    );
+                    setUploadingNames((prev) => {
+                        const next = new Set(prev);
+                        next.delete(f.name);
+                        return next;
+                    });
+                    setSizeError(`Failed to upload "${f.name}"`);
                 });
         }
-    }, [addFile, uploadScope]);
+    }, [uploadScope, refreshFiles]);
 
     const handleDrag = useCallback((e: DragEvent) => {
         e.preventDefault();
@@ -537,39 +519,82 @@ function FileLibraryTab() {
     );
 
     const handleVectorizeAll = useCallback(() => {
-        const uploadedNames = backendFiles.filter((f) => f.status === 'uploaded').map((f) => f.name);
+        if (vecJobId) return; // already running
+
+        const scopedFiles = getFilesByScope(activeScope);
+        const uploadedNames = scopedFiles
+            .filter((f) => f.status === 'uploaded')
+            .map((f) => f.name);
         if (uploadedNames.length === 0) return;
-        setBackendFiles((prev) =>
-            prev.map((f) =>
-                f.status === 'uploaded' ? { ...f, status: 'vectorizing' } : f,
-            ),
-        );
+
+        setVecProgress({ status: 'starting', total: uploadedNames.length, completed: 0, currentFile: null });
+
         fetch('http://localhost:4000/api/vectorize', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ files: uploadedNames }),
+            body: JSON.stringify({ files: uploadedNames, scope: activeScope }),
         })
             .then((res) => res.json())
-            .then(() => {
-                setBackendFiles((prev) =>
-                    prev.map((f) =>
-                        f.status === 'vectorizing' ? { ...f, status: 'vectorized' } : f,
-                    ),
-                );
+            .then((data) => {
+                if (data.jobId) {
+                    setVecJobId(data.jobId);
+                    setVecProgress({ status: 'running', total: data.total, completed: 0, currentFile: null });
+                } else {
+                    setVecProgress(null);
+                }
             })
             .catch(() => {
-                setBackendFiles((prev) =>
-                    prev.map((f) => (f.status === 'vectorizing' ? { ...f, status: 'error' } : f)),
-                );
+                setVecProgress(null);
             });
-    }, [backendFiles]);
+    }, [activeScope, getFilesByScope, vecJobId]);
 
-    const handleDeleteBackend = useCallback((name: string) => {
-        setBackendFiles((prev) => prev.filter((f) => f.name !== name));
-        fetch(`http://localhost:4000/api/files/${encodeURIComponent(name)}`, { method: 'DELETE' }).catch(() => { });
-    }, []);
+    // Poll for vectorization progress
+    useEffect(() => {
+        if (!vecJobId) return;
+
+        const interval = setInterval(async () => {
+            try {
+                const res = await fetch(`http://localhost:4000/api/vectorize/status/${vecJobId}`);
+                if (!res.ok) {
+                    clearInterval(interval);
+                    setVecJobId(null);
+                    setVecProgress(null);
+                    return;
+                }
+                const data = await res.json();
+                setVecProgress({
+                    status: data.status,
+                    total: data.total,
+                    completed: data.completed,
+                    currentFile: data.currentFile,
+                });
+
+                if (data.status === 'completed' || data.status === 'completed_with_errors') {
+                    clearInterval(interval);
+                    setVecJobId(null);
+                    refreshFiles();
+                    // Keep progress visible for 5 seconds so user sees completion
+                    setTimeout(() => setVecProgress(null), 5000);
+                }
+            } catch {
+                // Network error — keep polling
+            }
+        }, 3000);
+
+        return () => clearInterval(interval);
+    }, [vecJobId, refreshFiles]);
+
+    const handleDelete = useCallback((file: LibraryFile) => {
+        removeFile(file.id);
+        fetch(`http://localhost:4000/api/files/${encodeURIComponent(file.name)}?scope=${file.scope}`, {
+            method: 'DELETE',
+        })
+            .then(() => refreshFiles())
+            .catch(() => { });
+    }, [removeFile, refreshFiles]);
 
     const scopedFiles = getFilesByScope(activeScope);
+    const hasUploadedFiles = scopedFiles.some((f) => f.status === 'uploaded');
     const scopes: LibraryScope[] = ['personal', 'team', 'global'];
 
     return (
@@ -684,13 +709,105 @@ function FileLibraryTab() {
                         <span className="material-icons" style={{ fontSize: 18, color: colors.primary }}>local_library</span>
                         Library Browser
                     </span>
-                    {backendFiles.some((f) => f.status === 'uploaded') && (
-                        <button style={vectorizeAllBtn(isDark)} onClick={handleVectorizeAll}>
-                            <span className="material-icons" style={{ fontSize: 16 }}>memory</span>
-                            Vectorize All
+                    {hasUploadedFiles && (
+                        <button
+                            style={{
+                                ...vectorizeAllBtn(isDark),
+                                ...(vecProgress ? { opacity: 0.7, cursor: 'not-allowed' } : {}),
+                            }}
+                            onClick={handleVectorizeAll}
+                            disabled={!!vecProgress}
+                        >
+                            {vecProgress ? (
+                                <>
+                                    <span
+                                        className="material-icons"
+                                        style={{
+                                            fontSize: 16,
+                                            animation: 'spin 1s linear infinite',
+                                        }}
+                                    >
+                                        sync
+                                    </span>
+                                    {vecProgress.status === 'starting'
+                                        ? 'Starting…'
+                                        : `${vecProgress.completed}/${vecProgress.total} Processing…`}
+                                </>
+                            ) : (
+                                <>
+                                    <span className="material-icons" style={{ fontSize: 16 }}>memory</span>
+                                    Vectorize All
+                                </>
+                            )}
                         </button>
                     )}
                 </div>
+
+                {/* Vectorization progress banner */}
+                {vecProgress && (
+                    <div
+                        style={{
+                            padding: '12px 24px',
+                            background: vecProgress.status === 'completed'
+                                ? (isDark ? '#064e3b' : '#d1fae5')
+                                : vecProgress.status === 'completed_with_errors'
+                                    ? (isDark ? '#78350f' : '#fef3c7')
+                                    : (isDark ? '#1e3a5f' : '#dbeafe'),
+                            borderBottom: `1px solid ${isDark ? colors.borderDark : colors.borderLight}`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 12,
+                            fontSize: 13,
+                            fontWeight: 500,
+                            color: isDark ? '#e5e7eb' : '#374151',
+                        }}
+                    >
+                        {vecProgress.status === 'completed' ? (
+                            <>
+                                <span className="material-icons" style={{ fontSize: 18, color: '#10b981' }}>check_circle</span>
+                                All {vecProgress.total} files vectorized successfully!
+                            </>
+                        ) : vecProgress.status === 'completed_with_errors' ? (
+                            <>
+                                <span className="material-icons" style={{ fontSize: 18, color: '#f59e0b' }}>warning</span>
+                                Completed with some errors ({vecProgress.completed}/{vecProgress.total})
+                            </>
+                        ) : (
+                            <>
+                                <span
+                                    className="material-icons"
+                                    style={{ fontSize: 18, animation: 'spin 1s linear infinite' }}
+                                >
+                                    sync
+                                </span>
+                                <div style={{ flex: 1 }}>
+                                    <div>Vectorizing {vecProgress.completed + 1} of {vecProgress.total}…</div>
+                                    {vecProgress.currentFile && (
+                                        <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>
+                                            Processing: {vecProgress.currentFile}
+                                        </div>
+                                    )}
+                                </div>
+                                {/* Progress bar */}
+                                <div style={{
+                                    width: 120,
+                                    height: 6,
+                                    borderRadius: 3,
+                                    backgroundColor: isDark ? '#374151' : '#e5e7eb',
+                                    overflow: 'hidden',
+                                }}>
+                                    <div style={{
+                                        height: '100%',
+                                        width: `${Math.round((vecProgress.completed / vecProgress.total) * 100)}%`,
+                                        background: 'linear-gradient(90deg, #6366f1, #8b5cf6)',
+                                        borderRadius: 3,
+                                        transition: 'width 0.5s ease',
+                                    }} />
+                                </div>
+                            </>
+                        )}
+                    </div>
+                )}
 
                 {/* Scope tabs */}
                 <div style={{
@@ -742,7 +859,46 @@ function FileLibraryTab() {
                 </div>
 
                 {/* File list */}
-                {scopedFiles.length === 0 ? (
+                {loading ? (
+                    /* Loading skeleton */
+                    <div style={{ padding: '16px 24px' }}>
+                        {[1, 2, 3, 4].map((n) => (
+                            <div
+                                key={n}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 12,
+                                    padding: '14px 0',
+                                    borderBottom: `1px solid ${isDark ? '#1f2937' : '#f3f4f6'}`,
+                                }}
+                            >
+                                <div style={{
+                                    width: 24, height: 24, borderRadius: 4,
+                                    backgroundColor: isDark ? '#1f2937' : '#e5e7eb',
+                                    animation: 'pulse 1.5s ease-in-out infinite',
+                                }} />
+                                <div style={{
+                                    width: `${50 + n * 10}%`, height: 14, borderRadius: 4,
+                                    backgroundColor: isDark ? '#1f2937' : '#e5e7eb',
+                                    animation: 'pulse 1.5s ease-in-out infinite',
+                                    animationDelay: `${n * 0.15}s`,
+                                }} />
+                            </div>
+                        ))}
+                        <div style={{
+                            textAlign: 'center', padding: '8px 0', fontSize: 12,
+                            color: isDark ? '#6b7280' : '#9ca3af',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                        }}>
+                            <span
+                                className="material-icons"
+                                style={{ fontSize: 14, animation: 'spin 1s linear infinite' }}
+                            >sync</span>
+                            Loading documents…
+                        </div>
+                    </div>
+                ) : scopedFiles.length === 0 ? (
                     <div style={emptyState(isDark)}>
                         <span className="material-icons-outlined" style={{ fontSize: 40, marginBottom: 8, display: 'block', opacity: 0.4 }}>
                             folder_open
@@ -760,16 +916,14 @@ function FileLibraryTab() {
                             <tr>
                                 <th style={thStyle(isDark)}>File</th>
                                 <th style={thStyle(isDark)}>Size</th>
+                                <th style={thStyle(isDark)}>Status</th>
                                 <th style={thStyle(isDark)}>Uploaded</th>
-                                <th style={thStyle(isDark)}>By</th>
                                 <th style={{ ...thStyle(isDark), width: 48 }} />
                             </tr>
                         </thead>
                         <tbody>
                             {scopedFiles.map((f: LibraryFile) => {
                                 const fi = fileIcon(f.name);
-                                // Check if this file has backend status
-                                const backendMatch = backendFiles.find((bf) => bf.name === f.name);
                                 return (
                                     <tr key={f.id}>
                                         <td style={tdStyle(isDark)}>
@@ -778,29 +932,25 @@ function FileLibraryTab() {
                                                     {fi.icon}
                                                 </span>
                                                 <span style={{ fontWeight: 500 }}>{f.name}</span>
-                                                {backendMatch && (
-                                                    <span style={statusBadge(backendMatch.status, isDark)}>
-                                                        {backendMatch.status}
-                                                    </span>
-                                                )}
                                             </div>
                                         </td>
                                         <td style={{ ...tdStyle(isDark), color: isDark ? '#9ca3af' : '#6b7280' }}>
                                             {formatBytes(f.size)}
                                         </td>
-                                        <td style={{ ...tdStyle(isDark), color: isDark ? '#9ca3af' : '#6b7280', fontSize: 13 }}>
-                                            {formatDate(f.uploadedAt)}
+                                        <td style={tdStyle(isDark)}>
+                                            {f.status && (
+                                                <span style={statusBadge(f.status, isDark)}>
+                                                    {f.status}
+                                                </span>
+                                            )}
                                         </td>
                                         <td style={{ ...tdStyle(isDark), color: isDark ? '#9ca3af' : '#6b7280', fontSize: 13 }}>
-                                            {f.uploadedBy}
+                                            {formatDate(f.uploadedAt)}
                                         </td>
                                         <td style={tdStyle(isDark)}>
                                             <button
                                                 style={deleteBtn(isDark)}
-                                                onClick={() => {
-                                                    removeFile(f.id);
-                                                    handleDeleteBackend(f.name);
-                                                }}
+                                                onClick={() => handleDelete(f)}
                                                 onMouseEnter={(e) => {
                                                     e.currentTarget.style.backgroundColor = isDark ? '#374151' : '#fee2e2';
                                                     e.currentTarget.style.color = '#ef4444';
