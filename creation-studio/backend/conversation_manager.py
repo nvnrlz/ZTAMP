@@ -20,6 +20,7 @@ Architecture:
 
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -243,38 +244,31 @@ class ConversationManager:
         conversation_history: list[dict],
         rag_context: str,
         attached_note: str = "",
+        context_budget_tokens: int = 0,
     ) -> list[dict]:
         """
-        Build a token-optimized message array for the LLM.
+        Build a token-budget-aware message array for the LLM.
 
-        Structure:
-        1. System prompt — fixed instructions
-        2. Rolling summary — covers old messages
-        3. Last N raw message pairs — recent context
-        4. Augmented user message with:
-           a. RAG context — document content
-           b. Attached files note
-           c. User's actual question
+        Priority (must-have filled first):
+          1. System prompt  — fixed instructions (MUST-HAVE)
+          2. Augmented user message with RAG + question (MUST-HAVE)
+          3. Rolling summary  — condensed history (OPTIONAL, budget permitting)
+          4. Recent conversation pairs  (OPTIONAL, budget permitting)
         """
-        messages = [{"role": "system", "content": system_prompt}]
+        # ── Calculate budget ──
+        # Reserve tokens for the LLM response
+        response_reserve = self.MAX_OUTPUT_TOKENS  # 2048
+        total_budget = (context_budget_tokens or 30720) - response_reserve
 
-        # ── Rolling summary (if any) ──
-        summary_block = session.rolling_summary.to_prompt_block()
-        if summary_block:
-            messages.append({
-                "role": "system",
-                "content": summary_block,
-            })
+        # ══════════════════════════════════════════════════
+        # MUST-HAVE #1: System prompt
+        # ══════════════════════════════════════════════════
+        system_msg = {"role": "system", "content": system_prompt}
+        used_tokens = self._estimate_tokens(system_prompt)
 
-        # ── Last N raw message pairs ──
-        raw_window = self.MAX_RAW_HISTORY_PAIRS * 2
-        recent_history = conversation_history[-raw_window:]
-        for msg in recent_history:
-            role = msg.get("role", msg.role if hasattr(msg, "role") else "user")
-            content = msg.get("content", msg.content if hasattr(msg, "content") else "")
-            messages.append({"role": role, "content": content})
-
-        # ── Augmented user message ──
+        # ══════════════════════════════════════════════════
+        # MUST-HAVE #2: Augmented user message (RAG + slash commands + question)
+        # ══════════════════════════════════════════════════
         augmented = (
             f"## Retrieved Document Content\n"
             f"{rag_context}"
@@ -288,15 +282,181 @@ class ConversationManager:
                 + "\n\n"
             )
 
-        augmented += (
-            f"## User's Question\n"
-            f"{user_message}\n\n"
-            "Respond with valid JSON containing your answer in the 'message_to_user' field. "
-            "Cite document sources when applicable.\n"
+        # ── Parse slash commands from user message ──
+        defined_params, floating_params, clean_message = self._parse_slash_commands(
+            user_message
         )
 
-        messages.append({"role": "user", "content": augmented})
+        augmented += (
+            f"## User's Request\n"
+            f"{clean_message}\n\n"
+        )
+
+        # Add structured parameter block if slash commands were found
+        if defined_params or floating_params:
+            augmented += "## User-Specified Parameters\n"
+            if defined_params:
+                augmented += "### Defined Parameters (concrete values):\n"
+                for i, dp in enumerate(defined_params, 1):
+                    augmented += f"{i}. {dp}\n"
+                augmented += "\n"
+            if floating_params:
+                augmented += "### Floating Parameters (to be decided at runtime):\n"
+                for i, fp in enumerate(floating_params, 1):
+                    augmented += f"{i}. {fp} → use {{{{param_name}}}} in steps\n"
+                augmented += "\n"
+            augmented += (
+                "## Cross-Reference Task\n"
+                "Compare the user-specified parameters against ALL parameters "
+                "from the Retrieved Document Content — mandatory, optional, and defaults. "
+                "List EVERY parameter from the docs for THIS SPECIFIC TASK ONLY. "
+                "If any are NOT covered by /dp or /fp, use intent='clarification' "
+                "and list ALL unaccounted ones (mandatory AND optional). "
+                "If ALL are covered, use intent='action'. "
+                "Generate steps ONLY for the exact task requested — do NOT expand scope.\n\n"
+            )
+        else:
+            # No slash commands — check if it's a PARAMETER DECISIONS message
+            if user_message.strip().startswith("PARAMETER DECISIONS"):
+                augmented += (
+                    "The user has made explicit choices for EVERY missing parameter. "
+                    "You MUST respond with intent='action' and generate the complete workflow. "
+                    "For [PROVIDED] params use the exact value. For [DEFERRED] params use {{param_name}} syntax. "
+                    "For [DEFAULT] params use the document-recommended default. "
+                    "Generate steps ONLY for the exact task the user originally requested.\n\n"
+                )
+            else:
+                augmented += (
+                    "Begin by writing your <parameter_audit> reasoning block. "
+                    "Then output a valid JSON object with your response.\n\n"
+                )
+
+        user_msg = {"role": "user", "content": augmented}
+        used_tokens += self._estimate_tokens(augmented)
+
+        # ══════════════════════════════════════════════════
+        # OPTIONAL: Rolling summary (if budget allows)
+        # ══════════════════════════════════════════════════
+        optional_messages: list[dict] = []
+        summary_block = session.rolling_summary.to_prompt_block()
+        if summary_block:
+            summary_tokens = self._estimate_tokens(summary_block)
+            if used_tokens + summary_tokens < total_budget:
+                optional_messages.append({
+                    "role": "system",
+                    "content": summary_block,
+                })
+                used_tokens += summary_tokens
+                logger.debug(
+                    "Token budget: added rolling summary (%d tokens, %d/%d used)",
+                    summary_tokens, used_tokens, total_budget,
+                )
+            else:
+                logger.info(
+                    "Token budget: skipping rolling summary (%d tokens would exceed %d/%d)",
+                    summary_tokens, used_tokens, total_budget,
+                )
+
+        # ══════════════════════════════════════════════════
+        # OPTIONAL: Recent conversation history (newest first, if budget allows)
+        # ══════════════════════════════════════════════════
+        history_messages: list[dict] = []
+        if conversation_history:
+            # Try to include recent history, newest first
+            max_pairs = self.MAX_RAW_HISTORY_PAIRS
+            raw_window = max_pairs * 2
+            candidates = conversation_history[-raw_window:]
+
+            for msg in reversed(candidates):
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                msg_tokens = self._estimate_tokens(content)
+
+                if used_tokens + msg_tokens < total_budget:
+                    history_messages.insert(0, {"role": role, "content": content})
+                    used_tokens += msg_tokens
+                else:
+                    logger.info(
+                        "Token budget: stopping history inclusion (%d/%d used, next msg: %d tokens)",
+                        used_tokens, total_budget, msg_tokens,
+                    )
+                    break
+
+        # ── Assemble final message array ──
+        messages = [system_msg]
+        messages.extend(optional_messages)  # rolling summary
+        messages.extend(history_messages)   # conversation history (budget-limited)
+        messages.append(user_msg)           # augmented user message (always last)
+
+        logger.info(
+            "Context budget: %d/%d tokens used (%d system, %d history msgs, %d user+RAG) | "
+            "%d tokens remaining",
+            used_tokens, total_budget,
+            self._estimate_tokens(system_prompt),
+            len(history_messages),
+            self._estimate_tokens(augmented),
+            total_budget - used_tokens,
+        )
+
         return messages
+
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        """
+        Rough token estimate: ~4 characters per token for English text.
+        This is a fast heuristic — production would use tiktoken or similar.
+        """
+        return max(1, len(text) // 4)
+
+    @staticmethod
+    def _parse_slash_commands(
+        message: str,
+    ) -> tuple[list[str], list[str], str]:
+        """
+        Parse /dp and /fp slash commands from the user message.
+
+        Supports:
+          /dp <value/description>  or  /defined <value/description>
+          /fp <description>        or  /floating <description>
+
+        Returns:
+          (defined_params, floating_params, clean_message)
+        """
+        defined_params: list[str] = []
+        floating_params: list[str] = []
+
+        # Pattern: match /dp, /defined, /fp, /floating followed by text
+        # until the next slash command or end of string
+        pattern = re.compile(
+            r'/(dp|defined|fp|floating)\s+'   # command
+            r'(.*?)'                           # content (lazy)
+            r'(?=\s*/(?:dp|defined|fp|floating)\b|$)',  # lookahead for next cmd or end
+            re.IGNORECASE | re.DOTALL,
+        )
+
+        for match in pattern.finditer(message):
+            cmd_type = match.group(1).lower()
+            content = match.group(2).strip()
+            if not content:
+                continue
+
+            if cmd_type in ('dp', 'defined'):
+                defined_params.append(content)
+            elif cmd_type in ('fp', 'floating'):
+                floating_params.append(content)
+
+        # Remove slash commands from the message to get the clean request
+        clean_message = pattern.sub('', message).strip()
+        # Collapse extra whitespace
+        clean_message = re.sub(r'\s{2,}', ' ', clean_message).strip()
+
+        if defined_params or floating_params:
+            logger.info(
+                "Parsed slash commands: %d defined, %d floating",
+                len(defined_params), len(floating_params),
+            )
+
+        return defined_params, floating_params, clean_message
 
     def generate_rolling_summary(
         self,

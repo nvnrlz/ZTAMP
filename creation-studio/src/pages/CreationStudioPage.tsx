@@ -47,6 +47,7 @@ function CreationStudioInner() {
 
     const [showUnsavedModal, setShowUnsavedModal] = useState(false);
     const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
+    const [isPlannerExpanded, setIsPlannerExpanded] = useState(true);
 
     useEffect(() => {
         const wfId = searchParams.get('load');
@@ -125,7 +126,11 @@ function CreationStudioInner() {
     return (
         <>
             <div style={mainStyle}>
-                <PlannerSidebar />
+                <PlannerSidebar
+                    isExpanded={isPlannerExpanded}
+                    onCollapse={() => setIsPlannerExpanded(false)}
+                    onExpand={() => setIsPlannerExpanded(true)}
+                />
                 <WorkflowCanvas />
                 <NodeConfigPanel />
             </div>

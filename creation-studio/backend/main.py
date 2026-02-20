@@ -141,10 +141,22 @@ class ChatRequest(BaseModel):
         default=None,
         description="Conversation session ID for stateful context tracking"
     )
+    use_rag: bool = Field(
+        default=True,
+        description="Whether to activate RAG search for this message"
+    )
+    model: Optional[str] = Field(
+        default=None,
+        description="Override the default LLM model for this request"
+    )
 
 
 class ChatResponse(BaseModel):
     message_to_user: str = Field(..., description="Agent's response message with source citations")
+    intent: str = Field(default="question", description="'question', 'clarification', or 'action'")
+    steps: list[dict] = Field(default_factory=list, description="Workflow steps when intent is 'action'")
+    workflow_parameters: list[dict] = Field(default_factory=list, description="Parameters with status (provided/deferred)")
+    missing_parameters_audit: list[dict] = Field(default_factory=list, description="Missing params with source quotes for clarification")
     rag_citations: list[str] = Field(default_factory=list, description="Sources used from knowledge base")
     session_id: str = Field(default="", description="Session ID for conversation continuity")
 
@@ -216,6 +228,8 @@ async def chat(request: ChatRequest):
             conversation_history=history,
             attached_files=request.attached_files,
             session_id=request.session_id,
+            use_rag=request.use_rag,
+            model_override=request.model,
         )
         return ChatResponse(**response.to_dict())
 
@@ -232,6 +246,21 @@ async def chat(request: ChatRequest):
             detail=f"Internal error: {str(e)}",
         )
 
+
+@app.get("/api/planner/models")
+async def list_models():
+    """Return available LLM models from Ollama."""
+    if not planner_agent:
+        raise HTTPException(status_code=503, detail="Planner Agent not initialized")
+
+    health = await planner_agent.check_ollama_health()
+    models = health.get("available_models", [])
+    active = health.get("model_name", "")
+
+    return {
+        "models": models,
+        "active_model": active,
+    }
 
 @app.get("/api/planner/health", response_model=HealthResponse)
 async def health_check():
