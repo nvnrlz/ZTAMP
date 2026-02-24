@@ -1,0 +1,188 @@
+{
+  "id": "wf_1771183140059_9e0fv2",
+  "name": "Sales Data Pipeline",
+  "description": "Processes Excel sales data with conditions",
+  "nodes": [
+    {
+      "id": "param-1",
+      "type": "paramNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "label": "Parameters"
+      },
+      "measured": {
+        "width": 140,
+        "height": 72
+      }
+    },
+    {
+      "id": "action-1",
+      "type": "actionNode",
+      "position": {
+        "x": 250,
+        "y": 0
+      },
+      "data": {
+        "label": "Base Description"
+      },
+      "measured": {
+        "width": 140,
+        "height": 72
+      }
+    },
+    {
+      "id": "cond-1",
+      "type": "conditionalNode",
+      "position": {
+        "x": 250,
+        "y": 130
+      },
+      "data": {
+        "label": "Three Conditions"
+      },
+      "measured": {
+        "width": 140,
+        "height": 72
+      }
+    },
+    {
+      "id": "action-2",
+      "type": "actionNode",
+      "position": {
+        "x": 430,
+        "y": 130
+      },
+      "data": {
+        "label": "Process results"
+      },
+      "measured": {
+        "width": 140,
+        "height": 72
+      }
+    },
+    {
+      "id": "result-1",
+      "type": "resultNode",
+      "position": {
+        "x": 610,
+        "y": 130
+      },
+      "data": {
+        "label": "Export to Excel"
+      },
+      "measured": {
+        "width": 140,
+        "height": 72
+      }
+    },
+    {
+      "id": "result-2",
+      "type": "resultNode",
+      "position": {
+        "x": 430,
+        "y": 250
+      },
+      "data": {
+        "label": "Export to Excel"
+      },
+      "measured": {
+        "width": 140,
+        "height": 72
+      }
+    },
+    {
+      "id": "notify-1",
+      "type": "notifyNode",
+      "position": {
+        "x": 610,
+        "y": 250
+      },
+      "data": {
+        "label": "Send Email"
+      },
+      "measured": {
+        "width": 140,
+        "height": 72
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-c1-a2",
+      "source": "cond-1",
+      "target": "action-2",
+      "type": "smoothstep"
+    },
+    {
+      "id": "e-a2-r1",
+      "source": "action-2",
+      "target": "result-1",
+      "type": "smoothstep"
+    },
+    {
+      "id": "e-r2-n1",
+      "source": "result-2",
+      "target": "notify-1",
+      "type": "smoothstep"
+    },
+    {
+      "id": "e-p1-a1",
+      "source": "param-1",
+      "target": "action-1",
+      "type": "smoothstep"
+    },
+    {
+      "style": {
+        "stroke": "#6b7280",
+        "strokeWidth": 1.5
+      },
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#6b7280"
+      },
+      "source": "cond-1",
+      "sourceHandle": "bottom",
+      "target": "result-2",
+      "type": "smoothstep",
+      "id": "xy-edge__cond-1bottom-result-2"
+    },
+    {
+      "style": {
+        "stroke": "#6b7280",
+        "strokeWidth": 1.5
+      },
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#6b7280"
+      },
+      "source": "result-1",
+      "sourceHandle": "bottom",
+      "target": "notify-1",
+      "targetHandle": "top",
+      "type": "smoothstep",
+      "id": "xy-edge__result-1bottom-notify-1top"
+    },
+    {
+      "style": {
+        "stroke": "#6b7280",
+        "strokeWidth": 1.5
+      },
+      "markerEnd": {
+        "type": "arrowclosed",
+        "color": "#6b7280"
+      },
+      "source": "action-1",
+      "sourceHandle": "bottom",
+      "target": "cond-1",
+      "type": "smoothstep",
+      "id": "xy-edge__action-1bottom-cond-1"
+    }
+  ],
+  "nodeConfigs": {},
+  "createdAt": "2026-02-15T19:19:00.059Z",
+  "updatedAt": "2026-02-15T19:52:28.930Z",
+  "version": 2
+}
