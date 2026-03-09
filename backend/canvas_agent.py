@@ -580,13 +580,14 @@ class CanvasAgent:
 
         # ── Create nodes ──
         for b in blocks:
+            full_desc = b.get("description", "")
             node = {
                 "id": b["id"],
                 "type": b["node_type"],
                 "position": b["position"],
                 "data": {
                     "label": b.get("label", "Step"),
-                    "subLabel": b.get("description", "")[:60],
+                    "subLabel": full_desc,
                 },
             }
             nodes.append(node)
@@ -660,10 +661,16 @@ class CanvasAgent:
           - notificationConfig { channel, recipients, subject, messageTemplate }
           - codeConfig { language, code, inputBindings, outputBindings }
           - parameterConfig { parameters[{ key, type, defaultValue, required }] }
+
+        Also generates a rich `coding_prompt` for the Coding Agent to use.
         """
         block_type = block["block_type"]
         label = block.get("label", "")
         description = block.get("description", "")
+
+        # ── Auto-generate description if missing ──
+        if not description:
+            description = self._generate_description(block, all_blocks)
 
         # ── Find neighbors for input/output descriptions ──
         mainline = [b for b in all_blocks if not b.get("_is_error_node")]
@@ -690,7 +697,7 @@ class CanvasAgent:
             "id": block["id"],
             "label": label,
             "nodeType": block["node_type"],
-            "subLabel": description[:60] if description else "",
+            "subLabel": description,
             "description": description,
             "inputSchema": input_desc,
             "outputSchema": output_desc,
@@ -812,7 +819,283 @@ class CanvasAgent:
 
             config["parameterConfig"] = {"parameters": params}
 
+        # ── Generate coding-agent prompt ──
+        config["coding_prompt"] = self._build_coding_prompt(block, config, all_blocks)
+
         return config
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Description Generator
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    @staticmethod
+    def _generate_description(
+        block: dict[str, Any],
+        all_blocks: list[dict[str, Any]],
+    ) -> str:
+        """
+        Auto-generate a meaningful description for blocks that are missing one.
+        Uses the typed payload data to create a human-readable summary.
+        """
+        block_type = block["block_type"]
+        label = block.get("label", "")
+
+        if block_type == "action_block":
+            ap = block.get("_action_payload") or {}
+            method = ap.get("method", "GET")
+            endpoint = ap.get("endpointOrTool", "")
+            action = ap.get("actionType", block.get("action_type", ""))
+            payload = ap.get("payload", "")
+            parts = [f"Execute {action} action" if action else f"Execute '{label}'"]
+            if method and endpoint:
+                parts.append(f"via {method} {endpoint}")
+            if payload:
+                parts.append(f"with payload: {payload[:120]}")
+            es = ap.get("executionSettings", {})
+            if es:
+                timeout = es.get("timeoutMs", 30000)
+                retries = es.get("maxRetries", 0)
+                parts.append(f"Timeout: {timeout}ms, Max retries: {retries}.")
+            return ". ".join(parts) + "."
+
+        elif block_type == "conditional_block":
+            cp = block.get("_conditional_payload") or {}
+            rules = cp.get("rules", [])
+            condition = block.get("condition", "")
+            if rules:
+                rule_descs = []
+                for r in rules:
+                    rule_descs.append(
+                        f"{r.get('variable', '?')} {r.get('operator', '==')} {r.get('compareValue', '?')}"
+                    )
+                op = cp.get("logicalOperator", "AND")
+                return f"Evaluate condition: {f' {op} '.join(rule_descs)}. Route to true/false branches accordingly."
+            elif condition:
+                return f"Evaluate condition: {condition}. Route to true branch if satisfied, false branch otherwise."
+            return f"Check the result of '{label}' and branch accordingly."
+
+        elif block_type == "code_block":
+            cdp = block.get("_code_payload") or {}
+            lang = cdp.get("language", "Python")
+            inputs = cdp.get("inputBindings", [])
+            outputs = cdp.get("outputBindings", [])
+            parts = [f"Execute custom {lang} code for '{label}'"]
+            if inputs:
+                input_names = [b.get("envKey", "?") for b in inputs]
+                parts.append(f"Inputs: {', '.join(input_names)}")
+            if outputs:
+                parts.append(f"Outputs: {', '.join(outputs)}")
+            return ". ".join(parts) + "."
+
+        elif block_type == "notification_block":
+            np_payload = block.get("_notify_payload") or {}
+            channel = np_payload.get("channel", "Email")
+            recipients = np_payload.get("recipients", [])
+            subject = np_payload.get("subject", "")
+            parts = [f"Send {channel} notification"]
+            if recipients:
+                parts.append(f"to {', '.join(recipients)}")
+            if subject:
+                parts.append(f"Subject: '{subject}'")
+            return ". ".join(parts) + "."
+
+        elif block_type == "result_block":
+            rp = block.get("_result_payload") or {}
+            status = rp.get("status", "Success")
+            outputs = rp.get("outputMapping", [])
+            parts = [f"Return workflow result with status '{status}'"]
+            if outputs:
+                output_keys = [o.get("outputKey", "?") for o in outputs]
+                parts.append(f"Output keys: {', '.join(output_keys)}")
+            terminate = rp.get("terminateExecution", True)
+            if terminate:
+                parts.append("Terminates workflow execution")
+            return ". ".join(parts) + "."
+
+        elif block_type == "parameter_block":
+            pp = block.get("_parameter_payload") or {}
+            params = pp.get("parameters", [])
+            if params:
+                param_descs = [f"{p.get('key', '?')} ({p.get('type', 'String')})" for p in params]
+                return f"Define workflow input parameters: {', '.join(param_descs)}."
+            return f"Define input parameters for '{label}'."
+
+        return f"Execute step: {label}."
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Coding Agent Prompt Builder
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    @staticmethod
+    def _build_coding_prompt(
+        block: dict[str, Any],
+        config: dict[str, Any],
+        all_blocks: list[dict[str, Any]],
+    ) -> str:
+        """
+        Build a detailed, actionable prompt that the Coding Agent can use
+        to generate executable code for this block.
+
+        The prompt includes:
+          - Block purpose and context
+          - Typed configuration details (endpoints, payloads, rules, code)
+          - Input/output variable mappings
+          - Error handling requirements
+        """
+        block_type = block["block_type"]
+        label = block.get("label", "")
+        description = config.get("description", "")
+        input_schema = config.get("inputSchema", "")
+        output_schema = config.get("outputSchema", "")
+
+        lines: list[str] = [
+            f"# Coding Agent Prompt for: {label}",
+            f"# Block ID: {block['id']}",
+            f"# Block Type: {block_type}",
+            f"# Input: {input_schema}",
+            f"# Output: {output_schema}",
+            f"#",
+            f"# Description: {description}",
+            "#",
+        ]
+
+        if block_type == "action_block":
+            ac = config.get("actionConfig", {})
+            lines.extend([
+                "# ACTION BLOCK — Generate HTTP/API call code",
+                f"# Action Type: {ac.get('actionType', 'N/A')}",
+                f"# HTTP Method: {ac.get('method', 'GET')}",
+                f"# Endpoint: {ac.get('endpointOrTool', 'N/A')}",
+                f"# Payload: {ac.get('payload', 'None')}",
+                "# Headers:",
+            ])
+            for h in ac.get("headers", []):
+                lines.append(f"#   {h.get('key', '?')}: {h.get('value', '?')}")
+            es = ac.get("executionSettings", {})
+            lines.extend([
+                "# Execution Settings:",
+                f"#   Timeout: {es.get('timeoutMs', 30000)}ms",
+                f"#   Max Retries: {es.get('maxRetries', 3)}",
+                f"#   Continue on Error: {es.get('continueOnError', False)}",
+                "#",
+                "# Requirements:",
+                "# 1. Make the HTTP request to the endpoint with the specified method and payload.",
+                "# 2. Include all headers in the request.",
+                "# 3. Resolve all {{variable}} placeholders from the runtime state before sending.",
+                "# 4. Handle timeouts and retries as configured.",
+                "# 5. Store the response body and status code in the block output.",
+                "# 6. Set block status to 'success' or 'failure' based on HTTP response.",
+            ])
+
+        elif block_type == "conditional_block":
+            cc = config.get("conditionalConfig", {})
+            lines.extend([
+                "# CONDITIONAL BLOCK — Generate branching logic",
+                f"# Logical Operator: {cc.get('logicalOperator', 'AND')}",
+                "# Rules:",
+            ])
+            for i, rule in enumerate(cc.get("rules", [])):
+                lines.append(
+                    f"#   Rule {i+1}: {rule.get('variable', '?')} "
+                    f"{rule.get('operator', '==')} {rule.get('compareValue', '?')}"
+                )
+            lines.extend([
+                "#",
+                "# Requirements:",
+                "# 1. Evaluate all rules and combine with the logical operator.",
+                "# 2. Resolve {{variable}} placeholders from the runtime state.",
+                "# 3. Return True to proceed on the true branch, False for the false branch.",
+                "# 4. Log the evaluation result and the values compared.",
+            ])
+
+        elif block_type == "code_block":
+            cc = config.get("codeConfig", {})
+            lines.extend([
+                "# CODE BLOCK — Execute custom code",
+                f"# Language: {cc.get('language', 'Python')}",
+                "# Input Bindings:",
+            ])
+            for ib in cc.get("inputBindings", []):
+                lines.append(f"#   {ib.get('envKey', '?')} ← {ib.get('mappedValue', '?')}")
+            lines.append("# Output Bindings:")
+            for ob in cc.get("outputBindings", []):
+                lines.append(f"#   → {ob}")
+            code = cc.get("code", "")
+            if code:
+                lines.extend([
+                    "#",
+                    "# Provided Code:",
+                    "# ```",
+                ])
+                for code_line in code.split("\n"):
+                    lines.append(f"# {code_line}")
+                lines.append("# ```")
+            lines.extend([
+                "#",
+                "# Requirements:",
+                "# 1. Execute the provided code in a sandboxed environment.",
+                "# 2. Map input bindings from the runtime state to environment variables.",
+                "# 3. Capture output bindings and store them in the block output.",
+                "# 4. Handle exceptions and set block status accordingly.",
+            ])
+
+        elif block_type == "notification_block":
+            nc = config.get("notificationConfig", {})
+            lines.extend([
+                "# NOTIFICATION BLOCK — Send alert/notification",
+                f"# Channel: {nc.get('channel', 'Email')}",
+                f"# Recipients: {', '.join(nc.get('recipients', []))}",
+                f"# Subject: {nc.get('subject', 'N/A')}",
+                f"# Message Template: {nc.get('messageTemplate', 'N/A')}",
+                "#",
+                "# Requirements:",
+                "# 1. Resolve all {{variable}} placeholders in subject and message template.",
+                "# 2. Send the notification via the specified channel.",
+                "# 3. Include all recipients.",
+                "# 4. Log delivery status and any errors.",
+            ])
+
+        elif block_type == "result_block":
+            rc = config.get("resultConfig", {})
+            lines.extend([
+                "# RESULT BLOCK — Return workflow result",
+                f"# Status: {rc.get('status', 'Success')}",
+                "# Output Mapping:",
+            ])
+            for om in rc.get("outputMapping", []):
+                lines.append(f"#   {om.get('outputKey', '?')} ← {om.get('mappedValue', '?')}")
+            lines.extend([
+                f"# Terminate Execution: {rc.get('terminateExecution', True)}",
+                "#",
+                "# Requirements:",
+                "# 1. Collect all output mappings from the runtime state.",
+                "# 2. Format the final result payload.",
+                "# 3. If terminateExecution is true, halt the workflow engine.",
+                "# 4. Return the status and output values to the caller.",
+            ])
+
+        elif block_type == "parameter_block":
+            pc = config.get("parameterConfig", {})
+            lines.extend([
+                "# PARAMETER BLOCK — Define/collect workflow inputs",
+                "# Parameters:",
+            ])
+            for p in pc.get("parameters", []):
+                req = "required" if p.get("required") else "optional"
+                lines.append(
+                    f"#   {p.get('key', '?')}: {p.get('type', 'String')} "
+                    f"(default: {p.get('defaultValue', 'N/A')}, {req})"
+                )
+            lines.extend([
+                "#",
+                "# Requirements:",
+                "# 1. Validate all required parameters are provided.",
+                "# 2. Apply default values for optional parameters not provided.",
+                "# 3. Type-check parameter values against their declared types.",
+                "# 4. Store validated parameters in the runtime state for downstream blocks.",
+            ])
+
+        return "\n".join(lines)
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # A2UI Protocol Messages
@@ -833,7 +1116,7 @@ class CanvasAgent:
                 "componentType": block["node_type"],
                 "properties": {
                     "label": block.get("label", ""),
-                    "subLabel": block.get("description", "")[:60],
+                    "subLabel": block.get("description", ""),
                     "icon": block.get("icon", ""),
                     "color": block.get("color", ""),
                     "position": block.get("position", {"x": 0, "y": 0}),

@@ -1538,6 +1538,114 @@ export default function PlannerSidebar({ isExpanded, onCollapse, onExpand }: Pla
                             e.currentTarget.style.boxShadow = 'none';
                         }}
                     />
+
+                    {/* Template footer with Send button */}
+                    {templateContent.trim() && (
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                        }}>
+                            <span style={{
+                                fontSize: 11,
+                                color: isDark ? '#9ca3af' : '#6b7280',
+                                fontStyle: 'italic',
+                            }}>
+                                ✓ Template ready — will be sent with your next message
+                            </span>
+                            <button
+                                onClick={() => {
+                                    sendMessage('Use the attached workflow template to generate the workflow plan.');
+                                }}
+                                disabled={isLoading}
+                                style={{
+                                    padding: '5px 14px',
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                    fontFamily: fonts.display,
+                                    backgroundColor: isDark ? 'rgba(245,158,11,0.15)' : 'rgba(245,158,11,0.1)',
+                                    color: isDark ? '#f59e0b' : '#d97706',
+                                    border: `1px solid ${isDark ? 'rgba(245,158,11,0.3)' : 'rgba(245,158,11,0.25)'}`,
+                                    borderRadius: 8,
+                                    cursor: isLoading ? 'not-allowed' : 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 5,
+                                    transition: 'all 0.15s',
+                                    opacity: isLoading ? 0.5 : 1,
+                                    whiteSpace: 'nowrap',
+                                }}
+                                onMouseEnter={e => {
+                                    if (!isLoading) {
+                                        e.currentTarget.style.backgroundColor = isDark ? 'rgba(245,158,11,0.25)' : 'rgba(245,158,11,0.18)';
+                                    }
+                                }}
+                                onMouseLeave={e => {
+                                    e.currentTarget.style.backgroundColor = isDark ? 'rgba(245,158,11,0.15)' : 'rgba(245,158,11,0.1)';
+                                }}
+                                title="Send the template to the Planner Agent with a default instruction"
+                            >
+                                <span className="material-icons" style={{ fontSize: 14 }}>send</span>
+                                Send with Template
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Template attached banner (shown when panel is closed but template has content) */}
+            {!showTemplatePanel && templateContent.trim() && (
+                <div style={{
+                    padding: '6px 14px',
+                    backgroundColor: isDark ? 'rgba(245,158,11,0.08)' : 'rgba(245,158,11,0.06)',
+                    borderTop: `1px solid ${isDark ? 'rgba(245,158,11,0.15)' : 'rgba(245,158,11,0.12)'}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8,
+                }}>
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        fontSize: 11,
+                        color: isDark ? '#f59e0b' : '#d97706',
+                        fontWeight: 500,
+                    }}>
+                        <span className="material-icons-outlined" style={{ fontSize: 14 }}>description</span>
+                        📄 Template attached — will be sent with your next message
+                    </div>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                        <button
+                            onClick={() => setShowTemplatePanel(true)}
+                            style={{
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                fontSize: 10,
+                                fontWeight: 600,
+                                color: isDark ? '#60a5fa' : '#3b82f6',
+                                padding: '2px 6px',
+                            }}
+                        >
+                            View
+                        </button>
+                        <button
+                            onClick={() => setTemplateContent('')}
+                            style={{
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                fontSize: 10,
+                                fontWeight: 600,
+                                color: isDark ? '#f87171' : '#ef4444',
+                                padding: '2px 6px',
+                            }}
+                        >
+                            Remove
+                        </button>
+                    </div>
                 </div>
             )}
 
