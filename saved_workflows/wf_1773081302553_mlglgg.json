@@ -1,0 +1,593 @@
+{
+  "id": "wf_1773081302553_mlglgg",
+  "name": "Create the SG rgml-webapp-12",
+  "description": "Workflow to dynamically create the rgml-webapp-12 security group in a variable VPC and attach a variable number of inbound and outbound rules.",
+  "nodes": [
+    {
+      "id": "block_0",
+      "type": "actionNode",
+      "position": {
+        "x": 80,
+        "y": 80
+      },
+      "data": {
+        "label": "Create Security Group",
+        "subLabel": "Execute AWS API `CreateSecurityGroup` with GroupName '{{GroupName}}', Description '{{Description}}', and VpcId '{{vpc_id}}'."
+      },
+      "measured": {
+        "width": 180,
+        "height": 76
+      }
+    },
+    {
+      "id": "block_1",
+      "type": "conditionalNode",
+      "position": {
+        "x": 320,
+        "y": 80
+      },
+      "data": {
+        "label": "Check: Create Security Group",
+        "subLabel": "Verify that 'Create Security Group' completed successfully."
+      },
+      "measured": {
+        "width": 180,
+        "height": 76
+      }
+    },
+    {
+      "id": "block_3",
+      "type": "conditionalNode",
+      "position": {
+        "x": 560,
+        "y": 80
+      },
+      "data": {
+        "label": "Verify Security Group Creation",
+        "subLabel": "If step_1 returns a valid 'GroupId', proceed to step_3. If it fails, route to step_6."
+      },
+      "measured": {
+        "width": 180,
+        "height": 76
+      }
+    },
+    {
+      "id": "block_4",
+      "type": "codeNode",
+      "position": {
+        "x": 800,
+        "y": 80
+      },
+      "data": {
+        "label": "Format Rules",
+        "subLabel": "Use Python to iterate over {{inbound_rules}} and {{outbound_rules}} arrays and map them to standard AWS ingress/egress parameter structures."
+      },
+      "measured": {
+        "width": 180,
+        "height": 76
+      }
+    },
+    {
+      "id": "block_5",
+      "type": "actionNode",
+      "position": {
+        "x": 1040,
+        "y": 80
+      },
+      "data": {
+        "label": "Attach Rules",
+        "subLabel": "Execute AWS APIs `AuthorizeSecurityGroupIngress` and `AuthorizeSecurityGroupEgress` using the GroupId from step_1 and the formatted payload from step_3."
+      },
+      "measured": {
+        "width": 180,
+        "height": 76
+      }
+    },
+    {
+      "id": "block_6",
+      "type": "conditionalNode",
+      "position": {
+        "x": 1280,
+        "y": 80
+      },
+      "data": {
+        "label": "Check: Attach Rules",
+        "subLabel": "Verify that 'Attach Rules' completed successfully."
+      },
+      "measured": {
+        "width": 180,
+        "height": 76
+      }
+    },
+    {
+      "id": "block_8",
+      "type": "resultNode",
+      "position": {
+        "x": 1520,
+        "y": 80
+      },
+      "data": {
+        "label": "Success Result",
+        "subLabel": "Output a Success state. Include the 'GroupId' from step_1 in the final output payload."
+      },
+      "measured": {
+        "width": 180,
+        "height": 76
+      }
+    },
+    {
+      "id": "block_9",
+      "type": "notifyNode",
+      "position": {
+        "x": 1760,
+        "y": 80
+      },
+      "data": {
+        "label": "Notify Failure",
+        "subLabel": "Send an alert to the DevOps team regarding the failure."
+      },
+      "measured": {
+        "width": 180,
+        "height": 76
+      }
+    },
+    {
+      "id": "block_2",
+      "type": "resultNode",
+      "position": {
+        "x": 320,
+        "y": 260
+      },
+      "data": {
+        "label": "✗ Create Security Group Failed",
+        "subLabel": "The action 'Create Security Group' did not complete successfully. Review logs and retry or escalate."
+      },
+      "measured": {
+        "width": 180,
+        "height": 76
+      }
+    },
+    {
+      "id": "block_7",
+      "type": "resultNode",
+      "position": {
+        "x": 1280,
+        "y": 260
+      },
+      "data": {
+        "label": "✗ Attach Rules Failed",
+        "subLabel": "The action 'Attach Rules' did not complete successfully. Review logs and retry or escalate."
+      },
+      "measured": {
+        "width": 180,
+        "height": 76
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-block_0-block_1",
+      "source": "block_0",
+      "target": "block_1",
+      "type": "smoothstep",
+      "animated": true
+    },
+    {
+      "id": "edge-block_1-true-block_3",
+      "source": "block_1",
+      "target": "block_3",
+      "type": "smoothstep",
+      "animated": true,
+      "label": "✓ True",
+      "style": {
+        "stroke": "#22c55e"
+      }
+    },
+    {
+      "id": "edge-block_1-false-block_2",
+      "source": "block_1",
+      "sourceHandle": "bottom",
+      "target": "block_2",
+      "targetHandle": "top",
+      "type": "smoothstep",
+      "animated": true,
+      "label": "✗ False",
+      "style": {
+        "stroke": "#ef4444"
+      }
+    },
+    {
+      "id": "edge-block_3-true-block_4",
+      "source": "block_3",
+      "target": "block_4",
+      "type": "smoothstep",
+      "animated": true,
+      "label": "✓ True",
+      "style": {
+        "stroke": "#22c55e"
+      }
+    },
+    {
+      "id": "edge-block_3-false-block_9",
+      "source": "block_3",
+      "sourceHandle": "bottom",
+      "target": "block_9",
+      "targetHandle": "top",
+      "type": "smoothstep",
+      "animated": true,
+      "label": "✗ False",
+      "style": {
+        "stroke": "#ef4444"
+      }
+    },
+    {
+      "id": "edge-block_4-block_5",
+      "source": "block_4",
+      "target": "block_5",
+      "type": "smoothstep",
+      "animated": true
+    },
+    {
+      "id": "edge-block_5-block_6",
+      "source": "block_5",
+      "target": "block_6",
+      "type": "smoothstep",
+      "animated": true
+    },
+    {
+      "id": "edge-block_6-true-block_8",
+      "source": "block_6",
+      "target": "block_8",
+      "type": "smoothstep",
+      "animated": true,
+      "label": "✓ True",
+      "style": {
+        "stroke": "#22c55e"
+      }
+    },
+    {
+      "id": "edge-block_6-false-block_7",
+      "source": "block_6",
+      "sourceHandle": "bottom",
+      "target": "block_7",
+      "targetHandle": "top",
+      "type": "smoothstep",
+      "animated": true,
+      "label": "✗ False",
+      "style": {
+        "stroke": "#ef4444"
+      }
+    },
+    {
+      "id": "edge-block_8-block_9",
+      "source": "block_8",
+      "target": "block_9",
+      "type": "smoothstep",
+      "animated": true
+    }
+  ],
+  "nodeConfigs": {
+    "block_0": {
+      "id": "block_0",
+      "label": "Create Security Group",
+      "nodeType": "actionNode",
+      "subLabel": "Execute AWS API `CreateSecurityGroup` with GroupName '{{GroupName}}', Description '{{Description}}', and VpcId '{{vpc_id}}'.",
+      "description": "Execute AWS API `CreateSecurityGroup` with GroupName '{{GroupName}}', Description '{{Description}}', and VpcId '{{vpc_id}}'.",
+      "inputSchema": "⬤ Start — Workflow begins here",
+      "outputSchema": "Passes to: Check: Create Security Group",
+      "retryPolicy": {
+        "enabled": false,
+        "maxRetries": 3,
+        "retryDelay": 5,
+        "timeout": 30
+      },
+      "code": "",
+      "codeFile": "untitled.py",
+      "timeout": 30,
+      "retryOnFail": false,
+      "actionConfig": {
+        "actionType": "create_security_group",
+        "endpointOrTool": "https://api.example.com/v1/{{resource_id}}/security_groups",
+        "method": "POST",
+        "headers": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{api_token}}"
+          }
+        ],
+        "payload": "{\"GroupName\": \"{{GroupName}}\", \"Description\": \"{{Description}}\", \"VpcId\": \"{{vpc_id}}\"}",
+        "executionSettings": {
+          "timeoutMs": 10000,
+          "maxRetries": 3,
+          "continueOnError": false
+        }
+      },
+      "coding_prompt": "# Coding Agent Prompt for: Create Security Group\n# Block ID: block_0\n# Block Type: action_block\n# Input: ⬤ Start — Workflow begins here\n# Output: Passes to: Check: Create Security Group\n#\n# Description: Execute AWS API `CreateSecurityGroup` with GroupName '{{GroupName}}', Description '{{Description}}', and VpcId '{{vpc_id}}'.\n#\n# ACTION BLOCK — Generate HTTP/API call code\n# Action Type: create_security_group\n# HTTP Method: POST\n# Endpoint: https://api.example.com/v1/{{resource_id}}/security_groups\n# Payload: {\"GroupName\": \"{{GroupName}}\", \"Description\": \"{{Description}}\", \"VpcId\": \"{{vpc_id}}\"}\n# Headers:\n#   Authorization: Bearer {{api_token}}\n# Execution Settings:\n#   Timeout: 10000ms\n#   Max Retries: 3\n#   Continue on Error: False\n#\n# Requirements:\n# 1. Make the HTTP request to the endpoint with the specified method and payload.\n# 2. Include all headers in the request.\n# 3. Resolve all {{variable}} placeholders from the runtime state before sending.\n# 4. Handle timeouts and retries as configured.\n# 5. Store the response body and status code in the block output.\n# 6. Set block status to 'success' or 'failure' based on HTTP response."
+    },
+    "block_1": {
+      "id": "block_1",
+      "label": "Check: Create Security Group",
+      "nodeType": "conditionalNode",
+      "subLabel": "Verify that 'Create Security Group' completed successfully.",
+      "description": "Verify that 'Create Security Group' completed successfully.",
+      "inputSchema": "Receives from: Create Security Group",
+      "outputSchema": "Passes to: Verify Security Group Creation",
+      "retryPolicy": {
+        "enabled": false,
+        "maxRetries": 3,
+        "retryDelay": 5,
+        "timeout": 30
+      },
+      "code": "",
+      "codeFile": "untitled.py",
+      "timeout": 30,
+      "retryOnFail": false,
+      "conditionalConfig": {
+        "logicalOperator": "AND",
+        "rules": [
+          {
+            "variable": "{{block_0.status}}",
+            "operator": "==",
+            "compareValue": "success"
+          }
+        ]
+      },
+      "coding_prompt": "# Coding Agent Prompt for: Check: Create Security Group\n# Block ID: block_1\n# Block Type: conditional_block\n# Input: Receives from: Create Security Group\n# Output: Passes to: Verify Security Group Creation\n#\n# Description: Verify that 'Create Security Group' completed successfully.\n#\n# CONDITIONAL BLOCK — Generate branching logic\n# Logical Operator: AND\n# Rules:\n#   Rule 1: {{block_0.status}} == success\n#\n# Requirements:\n# 1. Evaluate all rules and combine with the logical operator.\n# 2. Resolve {{variable}} placeholders from the runtime state.\n# 3. Return True to proceed on the true branch, False for the false branch.\n# 4. Log the evaluation result and the values compared."
+    },
+    "block_3": {
+      "id": "block_3",
+      "label": "Verify Security Group Creation",
+      "nodeType": "conditionalNode",
+      "subLabel": "If step_1 returns a valid 'GroupId', proceed to step_3. If it fails, route to step_6.",
+      "description": "If step_1 returns a valid 'GroupId', proceed to step_3. If it fails, route to step_6.",
+      "inputSchema": "Receives from: Check: Create Security Group",
+      "outputSchema": "Passes to: Format Rules",
+      "retryPolicy": {
+        "enabled": false,
+        "maxRetries": 3,
+        "retryDelay": 5,
+        "timeout": 30
+      },
+      "code": "",
+      "codeFile": "untitled.py",
+      "timeout": 30,
+      "retryOnFail": false,
+      "conditionalConfig": {
+        "logicalOperator": "AND",
+        "rules": [
+          {
+            "variable": "{{step_1.output.GroupId}}",
+            "operator": "!=",
+            "compareValue": "null"
+          }
+        ]
+      },
+      "coding_prompt": "# Coding Agent Prompt for: Verify Security Group Creation\n# Block ID: block_3\n# Block Type: conditional_block\n# Input: Receives from: Check: Create Security Group\n# Output: Passes to: Format Rules\n#\n# Description: If step_1 returns a valid 'GroupId', proceed to step_3. If it fails, route to step_6.\n#\n# CONDITIONAL BLOCK — Generate branching logic\n# Logical Operator: AND\n# Rules:\n#   Rule 1: {{step_1.output.GroupId}} != null\n#\n# Requirements:\n# 1. Evaluate all rules and combine with the logical operator.\n# 2. Resolve {{variable}} placeholders from the runtime state.\n# 3. Return True to proceed on the true branch, False for the false branch.\n# 4. Log the evaluation result and the values compared."
+    },
+    "block_4": {
+      "id": "block_4",
+      "label": "Format Rules",
+      "nodeType": "codeNode",
+      "subLabel": "Use Python to iterate over {{inbound_rules}} and {{outbound_rules}} arrays and map them to standard AWS ingress/egress parameter structures.",
+      "description": "Use Python to iterate over {{inbound_rules}} and {{outbound_rules}} arrays and map them to standard AWS ingress/egress parameter structures.",
+      "inputSchema": "Receives from: Verify Security Group Creation",
+      "outputSchema": "Passes to: Attach Rules",
+      "retryPolicy": {
+        "enabled": false,
+        "maxRetries": 3,
+        "retryDelay": 5,
+        "timeout": 30
+      },
+      "code": "",
+      "codeFile": "untitled.py",
+      "timeout": 30,
+      "retryOnFail": false,
+      "codeConfig": {
+        "language": "Python",
+        "code": "import json\nformatted_inbound = []\nfor rule in {{inbound_rules}}:\n  formatted_rule = {'IpProtocol': rule['protocol'], 'FromPort': rule['port'], 'ToPort': rule['port'], 'CidrIpv4': rule['cidr']}\n  formatted_inbound.append(formatted_rule)\nformatted_outbound = []\nfor rule in {{outbound_rules}}:\n  formatted_rule = {'IpProtocol': rule['protocol'], 'FromPort': rule['port'], 'ToPort': rule['port'], 'CidrIpv4': rule['cidr']}\n  formatted_outbound.append(formatted_rule)\nreturn {'inbound': formatted_inbound, 'outbound': formatted_outbound}",
+        "inputBindings": [
+          {
+            "envKey": "inbound_rules",
+            "mappedValue": "{{inbound_rules}}"
+          },
+          {
+            "envKey": "outbound_rules",
+            "mappedValue": "{{outbound_rules}}"
+          }
+        ],
+        "outputBindings": [
+          "formatted_rules"
+        ]
+      },
+      "coding_prompt": "# Coding Agent Prompt for: Format Rules\n# Block ID: block_4\n# Block Type: code_block\n# Input: Receives from: Verify Security Group Creation\n# Output: Passes to: Attach Rules\n#\n# Description: Use Python to iterate over {{inbound_rules}} and {{outbound_rules}} arrays and map them to standard AWS ingress/egress parameter structures.\n#\n# CODE BLOCK — Execute custom code\n# Language: Python\n# Input Bindings:\n#   inbound_rules ← {{inbound_rules}}\n#   outbound_rules ← {{outbound_rules}}\n# Output Bindings:\n#   → formatted_rules\n#\n# Provided Code:\n# ```\n# import json\n# formatted_inbound = []\n# for rule in {{inbound_rules}}:\n#   formatted_rule = {'IpProtocol': rule['protocol'], 'FromPort': rule['port'], 'ToPort': rule['port'], 'CidrIpv4': rule['cidr']}\n#   formatted_inbound.append(formatted_rule)\n# formatted_outbound = []\n# for rule in {{outbound_rules}}:\n#   formatted_rule = {'IpProtocol': rule['protocol'], 'FromPort': rule['port'], 'ToPort': rule['port'], 'CidrIpv4': rule['cidr']}\n#   formatted_outbound.append(formatted_rule)\n# return {'inbound': formatted_inbound, 'outbound': formatted_outbound}\n# ```\n#\n# Requirements:\n# 1. Execute the provided code in a sandboxed environment.\n# 2. Map input bindings from the runtime state to environment variables.\n# 3. Capture output bindings and store them in the block output.\n# 4. Handle exceptions and set block status accordingly."
+    },
+    "block_5": {
+      "id": "block_5",
+      "label": "Attach Rules",
+      "nodeType": "actionNode",
+      "subLabel": "Execute AWS APIs `AuthorizeSecurityGroupIngress` and `AuthorizeSecurityGroupEgress` using the GroupId from step_1 and the formatted payload from step_3.",
+      "description": "Execute AWS APIs `AuthorizeSecurityGroupIngress` and `AuthorizeSecurityGroupEgress` using the GroupId from step_1 and the formatted payload from step_3.",
+      "inputSchema": "Receives from: Format Rules",
+      "outputSchema": "Passes to: Check: Attach Rules",
+      "retryPolicy": {
+        "enabled": false,
+        "maxRetries": 3,
+        "retryDelay": 5,
+        "timeout": 30
+      },
+      "code": "",
+      "codeFile": "untitled.py",
+      "timeout": 30,
+      "retryOnFail": false,
+      "actionConfig": {
+        "actionType": "authorize_security_group_ingress_and_egress",
+        "endpointOrTool": "https://api.example.com/v1/{{resource_id}}/security_groups/{{GroupId}}/ingress_and_egress",
+        "method": "POST",
+        "headers": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{api_token}}"
+          }
+        ],
+        "payload": "{\"GroupId\": \"{{step_1.output.GroupId}}\", \"InboundRules\": {{formatted_rules.inbound}}, \"OutboundRules\": {{formatted_rules.outbound}}}",
+        "executionSettings": {
+          "timeoutMs": 10000,
+          "maxRetries": 3,
+          "continueOnError": false
+        }
+      },
+      "coding_prompt": "# Coding Agent Prompt for: Attach Rules\n# Block ID: block_5\n# Block Type: action_block\n# Input: Receives from: Format Rules\n# Output: Passes to: Check: Attach Rules\n#\n# Description: Execute AWS APIs `AuthorizeSecurityGroupIngress` and `AuthorizeSecurityGroupEgress` using the GroupId from step_1 and the formatted payload from step_3.\n#\n# ACTION BLOCK — Generate HTTP/API call code\n# Action Type: authorize_security_group_ingress_and_egress\n# HTTP Method: POST\n# Endpoint: https://api.example.com/v1/{{resource_id}}/security_groups/{{GroupId}}/ingress_and_egress\n# Payload: {\"GroupId\": \"{{step_1.output.GroupId}}\", \"InboundRules\": {{formatted_rules.inbound}}, \"OutboundRules\": {{formatted_rules.outbound}}}\n# Headers:\n#   Authorization: Bearer {{api_token}}\n# Execution Settings:\n#   Timeout: 10000ms\n#   Max Retries: 3\n#   Continue on Error: False\n#\n# Requirements:\n# 1. Make the HTTP request to the endpoint with the specified method and payload.\n# 2. Include all headers in the request.\n# 3. Resolve all {{variable}} placeholders from the runtime state before sending.\n# 4. Handle timeouts and retries as configured.\n# 5. Store the response body and status code in the block output.\n# 6. Set block status to 'success' or 'failure' based on HTTP response."
+    },
+    "block_6": {
+      "id": "block_6",
+      "label": "Check: Attach Rules",
+      "nodeType": "conditionalNode",
+      "subLabel": "Verify that 'Attach Rules' completed successfully.",
+      "description": "Verify that 'Attach Rules' completed successfully.",
+      "inputSchema": "Receives from: Attach Rules",
+      "outputSchema": "Passes to: Success Result",
+      "retryPolicy": {
+        "enabled": false,
+        "maxRetries": 3,
+        "retryDelay": 5,
+        "timeout": 30
+      },
+      "code": "",
+      "codeFile": "untitled.py",
+      "timeout": 30,
+      "retryOnFail": false,
+      "conditionalConfig": {
+        "logicalOperator": "AND",
+        "rules": [
+          {
+            "variable": "{{block_5.status}}",
+            "operator": "==",
+            "compareValue": "success"
+          }
+        ]
+      },
+      "coding_prompt": "# Coding Agent Prompt for: Check: Attach Rules\n# Block ID: block_6\n# Block Type: conditional_block\n# Input: Receives from: Attach Rules\n# Output: Passes to: Success Result\n#\n# Description: Verify that 'Attach Rules' completed successfully.\n#\n# CONDITIONAL BLOCK — Generate branching logic\n# Logical Operator: AND\n# Rules:\n#   Rule 1: {{block_5.status}} == success\n#\n# Requirements:\n# 1. Evaluate all rules and combine with the logical operator.\n# 2. Resolve {{variable}} placeholders from the runtime state.\n# 3. Return True to proceed on the true branch, False for the false branch.\n# 4. Log the evaluation result and the values compared."
+    },
+    "block_8": {
+      "id": "block_8",
+      "label": "Success Result",
+      "nodeType": "resultNode",
+      "subLabel": "Output a Success state. Include the 'GroupId' from step_1 in the final output payload.",
+      "description": "Output a Success state. Include the 'GroupId' from step_1 in the final output payload.",
+      "inputSchema": "Receives from: Check: Attach Rules",
+      "outputSchema": "Passes to: Notify Failure",
+      "retryPolicy": {
+        "enabled": false,
+        "maxRetries": 3,
+        "retryDelay": 5,
+        "timeout": 30
+      },
+      "code": "",
+      "codeFile": "untitled.py",
+      "timeout": 30,
+      "retryOnFail": false,
+      "resultConfig": {
+        "status": "Success",
+        "outputMapping": [
+          {
+            "outputKey": "SecurityGroupID",
+            "mappedValue": "{{step_1.output.GroupId}}"
+          }
+        ],
+        "terminateExecution": true
+      },
+      "coding_prompt": "# Coding Agent Prompt for: Success Result\n# Block ID: block_8\n# Block Type: result_block\n# Input: Receives from: Check: Attach Rules\n# Output: Passes to: Notify Failure\n#\n# Description: Output a Success state. Include the 'GroupId' from step_1 in the final output payload.\n#\n# RESULT BLOCK — Return workflow result\n# Status: Success\n# Output Mapping:\n#   SecurityGroupID ← {{step_1.output.GroupId}}\n# Terminate Execution: True\n#\n# Requirements:\n# 1. Collect all output mappings from the runtime state.\n# 2. Format the final result payload.\n# 3. If terminateExecution is true, halt the workflow engine.\n# 4. Return the status and output values to the caller."
+    },
+    "block_9": {
+      "id": "block_9",
+      "label": "Notify Failure",
+      "nodeType": "notifyNode",
+      "subLabel": "Send an alert to the DevOps team regarding the failure.",
+      "description": "Send an alert to the DevOps team regarding the failure.",
+      "inputSchema": "Receives from: Success Result",
+      "outputSchema": "⬤ End — Workflow completes here",
+      "retryPolicy": {
+        "enabled": false,
+        "maxRetries": 3,
+        "retryDelay": 5,
+        "timeout": 30
+      },
+      "code": "",
+      "codeFile": "untitled.py",
+      "timeout": 30,
+      "retryOnFail": false,
+      "notificationConfig": {
+        "channel": "Slack",
+        "recipients": [
+          "#engineering-alerts"
+        ],
+        "subject": "Security Group Creation: {{workflow_name}}",
+        "messageTemplate": "Workflow failed. Security group creation error for VPC '{{vpc_id}}'. Error message: {{step_1.error_message}}"
+      },
+      "coding_prompt": "# Coding Agent Prompt for: Notify Failure\n# Block ID: block_9\n# Block Type: notification_block\n# Input: Receives from: Success Result\n# Output: ⬤ End — Workflow completes here\n#\n# Description: Send an alert to the DevOps team regarding the failure.\n#\n# NOTIFICATION BLOCK — Send alert/notification\n# Channel: Slack\n# Recipients: #engineering-alerts\n# Subject: Security Group Creation: {{workflow_name}}\n# Message Template: Workflow failed. Security group creation error for VPC '{{vpc_id}}'. Error message: {{step_1.error_message}}\n#\n# Requirements:\n# 1. Resolve all {{variable}} placeholders in subject and message template.\n# 2. Send the notification via the specified channel.\n# 3. Include all recipients.\n# 4. Log delivery status and any errors."
+    },
+    "block_2": {
+      "id": "block_2",
+      "label": "✗ Create Security Group Failed",
+      "nodeType": "resultNode",
+      "subLabel": "The action 'Create Security Group' did not complete successfully. Review logs and retry or escalate.",
+      "description": "The action 'Create Security Group' did not complete successfully. Review logs and retry or escalate.",
+      "inputSchema": "⬤ Error Branch — action failed",
+      "outputSchema": "⬤ Terminal — branch ends here",
+      "retryPolicy": {
+        "enabled": false,
+        "maxRetries": 3,
+        "retryDelay": 5,
+        "timeout": 30
+      },
+      "code": "",
+      "codeFile": "untitled.py",
+      "timeout": 30,
+      "retryOnFail": false,
+      "resultConfig": {
+        "status": "Failure",
+        "outputMapping": [
+          {
+            "outputKey": "error_source",
+            "mappedValue": "{{block_0.error}}"
+          }
+        ],
+        "terminateExecution": true
+      },
+      "coding_prompt": "# Coding Agent Prompt for: ✗ Create Security Group Failed\n# Block ID: block_2\n# Block Type: result_block\n# Input: ⬤ Error Branch — action failed\n# Output: ⬤ Terminal — branch ends here\n#\n# Description: The action 'Create Security Group' did not complete successfully. Review logs and retry or escalate.\n#\n# RESULT BLOCK — Return workflow result\n# Status: Failure\n# Output Mapping:\n#   error_source ← {{block_0.error}}\n# Terminate Execution: True\n#\n# Requirements:\n# 1. Collect all output mappings from the runtime state.\n# 2. Format the final result payload.\n# 3. If terminateExecution is true, halt the workflow engine.\n# 4. Return the status and output values to the caller."
+    },
+    "block_7": {
+      "id": "block_7",
+      "label": "✗ Attach Rules Failed",
+      "nodeType": "resultNode",
+      "subLabel": "The action 'Attach Rules' did not complete successfully. Review logs and retry or escalate.",
+      "description": "The action 'Attach Rules' did not complete successfully. Review logs and retry or escalate.",
+      "inputSchema": "⬤ Error Branch — action failed",
+      "outputSchema": "⬤ Terminal — branch ends here",
+      "retryPolicy": {
+        "enabled": false,
+        "maxRetries": 3,
+        "retryDelay": 5,
+        "timeout": 30
+      },
+      "code": "",
+      "codeFile": "untitled.py",
+      "timeout": 30,
+      "retryOnFail": false,
+      "resultConfig": {
+        "status": "Failure",
+        "outputMapping": [
+          {
+            "outputKey": "error_source",
+            "mappedValue": "{{block_5.error}}"
+          }
+        ],
+        "terminateExecution": true
+      },
+      "coding_prompt": "# Coding Agent Prompt for: ✗ Attach Rules Failed\n# Block ID: block_7\n# Block Type: result_block\n# Input: ⬤ Error Branch — action failed\n# Output: ⬤ Terminal — branch ends here\n#\n# Description: The action 'Attach Rules' did not complete successfully. Review logs and retry or escalate.\n#\n# RESULT BLOCK — Return workflow result\n# Status: Failure\n# Output Mapping:\n#   error_source ← {{block_5.error}}\n# Terminate Execution: True\n#\n# Requirements:\n# 1. Collect all output mappings from the runtime state.\n# 2. Format the final result payload.\n# 3. If terminateExecution is true, halt the workflow engine.\n# 4. Return the status and output values to the caller."
+    }
+  },
+  "createdAt": "2026-03-09T18:35:02.553Z",
+  "updatedAt": "2026-03-09T18:35:02.553Z",
+  "version": 1
+}

@@ -408,9 +408,47 @@ def interpolate_variables(template: str, state: dict[str, Any]) -> str:
     return re.sub(r"\{\{(.+?)\}\}", _replacer, template)
 
 
-# ─── System Prompt ──────────────────────────────────────
+# ─── System Prompt (loaded from external .md files) ─────
 
-SYSTEM_PROMPT = """You are the **Systems Architect** — a rigorous workflow designer for a multi-agent cloud infrastructure orchestration engine.
+# Lazy-loaded cache for the system prompt
+_SYSTEM_PROMPT_CACHE: str | None = None
+
+
+def _get_system_prompt() -> str:
+    """
+    Load the combined system prompt (master + planner_agent) from
+    external Markdown files. Falls back to inline default if files
+    are unavailable.
+    """
+    global _SYSTEM_PROMPT_CACHE
+
+    if _SYSTEM_PROMPT_CACHE is not None:
+        return _SYSTEM_PROMPT_CACHE
+
+    try:
+        from prompt_loader import get_agent_prompt
+        _SYSTEM_PROMPT_CACHE = get_agent_prompt("planner_agent")
+        logger.info(
+            "System prompt loaded from .md files (%d chars)",
+            len(_SYSTEM_PROMPT_CACHE),
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to load prompt from .md files: %s — using inline fallback", e
+        )
+        _SYSTEM_PROMPT_CACHE = _INLINE_SYSTEM_PROMPT
+
+    return _SYSTEM_PROMPT_CACHE
+
+
+def reload_system_prompt() -> None:
+    """Force reload the system prompt from disk (called after admin edits)."""
+    global _SYSTEM_PROMPT_CACHE
+    _SYSTEM_PROMPT_CACHE = None
+    _get_system_prompt()
+
+
+_INLINE_SYSTEM_PROMPT = """You are the **Systems Architect** — a rigorous workflow designer for a multi-agent cloud infrastructure orchestration engine.
 
 ## YOUR ROLE
 You receive a user's request along with LIVE DOCUMENTATION retrieved in real-time from approved websites.
@@ -844,7 +882,7 @@ class PlannerAgent:
             attached_note = f"\n\n📎 The user just attached: {file_list}\n"
 
         # ── Step 5: Select system prompt ──
-        system_prompt = SYSTEM_PROMPT
+        system_prompt = _get_system_prompt()
 
         # ── Step 5b: Inject workflow template if provided ──
         if template_content and template_content.strip():

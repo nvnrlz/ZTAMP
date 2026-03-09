@@ -3,9 +3,10 @@ import { useTheme } from '../context/ThemeContext';
 import { useFileLibrary, type LibraryScope, type LibraryFile } from '../context/FileLibraryContext';
 import { colors, shadows, fonts } from '../theme';
 import PolicySettings from '../components/settings/PolicySettings';
+import AgentPromptEditor from '../components/settings/AgentPromptEditor';
 
 /* ─── Types ─── */
-type SettingsTab = 'fileLibrary' | 'policySettings' | 'userProfile';
+type SettingsTab = 'fileLibrary' | 'policySettings' | 'agentPrompts' | 'userProfile';
 
 interface UploadedFile {
     name: string;
@@ -65,6 +66,7 @@ function formatDate(iso: string): string {
 const navItems: { key: SettingsTab; label: string; icon: string; description: string }[] = [
     { key: 'fileLibrary', label: 'File Library', icon: 'local_library', description: 'Manage files across libraries' },
     { key: 'policySettings', label: 'Policy Settings', icon: 'policy', description: 'Configure security policies' },
+    { key: 'agentPrompts', label: 'Agent Instructions', icon: 'psychology', description: 'Manage AI agent prompts' },
     { key: 'userProfile', label: 'User Profile', icon: 'account_circle', description: 'Your account settings' },
 ];
 
@@ -1295,6 +1297,7 @@ export default function SettingsPage() {
             <div style={mainContent}>
                 {activeTab === 'fileLibrary' && <FileLibraryTab />}
                 {activeTab === 'policySettings' && <PolicySettingsTab />}
+                {activeTab === 'agentPrompts' && <AgentPromptEditor />}
                 {activeTab === 'userProfile' && <UserProfileTab />}
             </div>
         </div>

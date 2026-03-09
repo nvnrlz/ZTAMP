@@ -361,6 +361,63 @@ async def get_rag_status():
     return result
 
 
+# ─── Admin: Prompt Management ──────────────────────────
+
+class PromptUpdateRequest(BaseModel):
+    content: str = Field(..., description="New content for the prompt file")
+
+
+@app.get("/api/admin/prompts")
+async def list_prompts():
+    """List all available prompt .md files."""
+    try:
+        from prompt_loader import list_prompt_files
+        files = list_prompt_files()
+        return {"prompts": files}
+    except Exception as e:
+        logger.error("Failed to list prompt files: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/admin/prompts/{filename}")
+async def read_prompt(filename: str):
+    """Read the raw content of a prompt file."""
+    try:
+        from prompt_loader import read_prompt_file
+        content = read_prompt_file(filename)
+        return {"filename": filename, "content": content}
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Prompt file not found: {filename}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Failed to read prompt file '%s': %s", filename, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/admin/prompts/{filename}")
+async def update_prompt(filename: str, body: PromptUpdateRequest):
+    """Update the content of a prompt file and invalidate cached prompts."""
+    try:
+        from prompt_loader import write_prompt_file
+        result = write_prompt_file(filename, body.content)
+
+        # Invalidate cached system prompts so changes take effect immediately
+        try:
+            from planner_agent import reload_system_prompt
+            reload_system_prompt()
+            logger.info("Planner agent system prompt cache invalidated")
+        except Exception as reload_err:
+            logger.warning("Could not reload system prompt cache: %s", reload_err)
+
+        return {"message": "Prompt updated successfully", **result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Failed to update prompt file '%s': %s", filename, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ─── Run ────────────────────────────────────────────────
 
 if __name__ == "__main__":
