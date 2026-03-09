@@ -1,0 +1,581 @@
+{
+  "id": "wf_1773079839911_znokqe",
+  "name": "Create security group 'rgml-webapp-12'",
+  "description": "Workflow to dynamically create security group 'rgml-webapp-12' in variable VPC with inbound and outbound rules.",
+  "nodes": [
+    {
+      "id": "block_0",
+      "type": "actionNode",
+      "position": {
+        "x": 80,
+        "y": 80
+      },
+      "data": {
+        "label": "Create Base Security Group",
+        "subLabel": "Execute AWS API `CreateSecurityGroup` with GroupName '{{Grou"
+      },
+      "measured": {
+        "width": 180,
+        "height": 76
+      }
+    },
+    {
+      "id": "block_1",
+      "type": "conditionalNode",
+      "position": {
+        "x": 320,
+        "y": 80
+      },
+      "data": {
+        "label": "Check: Create Base Security Group",
+        "subLabel": "Verify that 'Create Base Security Group' completed successfu"
+      },
+      "measured": {
+        "width": 180,
+        "height": 76
+      }
+    },
+    {
+      "id": "block_3",
+      "type": "conditionalNode",
+      "position": {
+        "x": 560,
+        "y": 80
+      },
+      "data": {
+        "label": "Verify Security Group Creation",
+        "subLabel": ""
+      },
+      "measured": {
+        "width": 180,
+        "height": 76
+      }
+    },
+    {
+      "id": "block_4",
+      "type": "codeNode",
+      "position": {
+        "x": 800,
+        "y": 80
+      },
+      "data": {
+        "label": "Format Rules for AWS API",
+        "subLabel": ""
+      },
+      "measured": {
+        "width": 180,
+        "height": 76
+      }
+    },
+    {
+      "id": "block_5",
+      "type": "actionNode",
+      "position": {
+        "x": 1040,
+        "y": 80
+      },
+      "data": {
+        "label": "Attach Rules to Security Group",
+        "subLabel": ""
+      },
+      "measured": {
+        "width": 180,
+        "height": 76
+      }
+    },
+    {
+      "id": "block_6",
+      "type": "conditionalNode",
+      "position": {
+        "x": 1280,
+        "y": 80
+      },
+      "data": {
+        "label": "Check: Attach Rules to Security Group",
+        "subLabel": "Verify that 'Attach Rules to Security Group' completed succe"
+      },
+      "measured": {
+        "width": 180,
+        "height": 76
+      }
+    },
+    {
+      "id": "block_8",
+      "type": "resultNode",
+      "position": {
+        "x": 1520,
+        "y": 80
+      },
+      "data": {
+        "label": "Return Successful State and Security Group ID",
+        "subLabel": ""
+      },
+      "measured": {
+        "width": 180,
+        "height": 76
+      }
+    },
+    {
+      "id": "block_9",
+      "type": "notifyNode",
+      "position": {
+        "x": 1760,
+        "y": 80
+      },
+      "data": {
+        "label": "Notify Failure to DevOps Team",
+        "subLabel": ""
+      },
+      "measured": {
+        "width": 180,
+        "height": 76
+      }
+    },
+    {
+      "id": "block_2",
+      "type": "resultNode",
+      "position": {
+        "x": 320,
+        "y": 260
+      },
+      "data": {
+        "label": "✗ Create Base Security Grou Failed",
+        "subLabel": "The action 'Create Base Security Group' did not complete suc"
+      },
+      "measured": {
+        "width": 180,
+        "height": 76
+      }
+    },
+    {
+      "id": "block_7",
+      "type": "resultNode",
+      "position": {
+        "x": 1280,
+        "y": 260
+      },
+      "data": {
+        "label": "✗ Attach Rules to Security  Failed",
+        "subLabel": "The action 'Attach Rules to Security Group' did not complete"
+      },
+      "measured": {
+        "width": 180,
+        "height": 76
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-block_0-block_1",
+      "source": "block_0",
+      "target": "block_1",
+      "type": "smoothstep",
+      "animated": true
+    },
+    {
+      "id": "edge-block_1-true-block_3",
+      "source": "block_1",
+      "target": "block_3",
+      "type": "smoothstep",
+      "animated": true,
+      "label": "✓ True",
+      "style": {
+        "stroke": "#22c55e"
+      }
+    },
+    {
+      "id": "edge-block_1-false-block_2",
+      "source": "block_1",
+      "sourceHandle": "bottom",
+      "target": "block_2",
+      "targetHandle": "top",
+      "type": "smoothstep",
+      "animated": true,
+      "label": "✗ False",
+      "style": {
+        "stroke": "#ef4444"
+      }
+    },
+    {
+      "id": "edge-block_3-true-block_4",
+      "source": "block_3",
+      "target": "block_4",
+      "type": "smoothstep",
+      "animated": true,
+      "label": "✓ True",
+      "style": {
+        "stroke": "#22c55e"
+      }
+    },
+    {
+      "id": "edge-block_3-false-block_9",
+      "source": "block_3",
+      "sourceHandle": "bottom",
+      "target": "block_9",
+      "targetHandle": "top",
+      "type": "smoothstep",
+      "animated": true,
+      "label": "✗ False",
+      "style": {
+        "stroke": "#ef4444"
+      }
+    },
+    {
+      "id": "edge-block_4-block_5",
+      "source": "block_4",
+      "target": "block_5",
+      "type": "smoothstep",
+      "animated": true
+    },
+    {
+      "id": "edge-block_5-block_6",
+      "source": "block_5",
+      "target": "block_6",
+      "type": "smoothstep",
+      "animated": true
+    },
+    {
+      "id": "edge-block_6-true-block_8",
+      "source": "block_6",
+      "target": "block_8",
+      "type": "smoothstep",
+      "animated": true,
+      "label": "✓ True",
+      "style": {
+        "stroke": "#22c55e"
+      }
+    },
+    {
+      "id": "edge-block_6-false-block_7",
+      "source": "block_6",
+      "sourceHandle": "bottom",
+      "target": "block_7",
+      "targetHandle": "top",
+      "type": "smoothstep",
+      "animated": true,
+      "label": "✗ False",
+      "style": {
+        "stroke": "#ef4444"
+      }
+    },
+    {
+      "id": "edge-block_8-block_9",
+      "source": "block_8",
+      "target": "block_9",
+      "type": "smoothstep",
+      "animated": true
+    }
+  ],
+  "nodeConfigs": {
+    "block_0": {
+      "id": "block_0",
+      "label": "Create Base Security Group",
+      "nodeType": "actionNode",
+      "subLabel": "Execute AWS API `CreateSecurityGroup` with GroupName '{{Grou",
+      "description": "Execute AWS API `CreateSecurityGroup` with GroupName '{{GroupName}}', Description '{{Description}}', and VpcId '{{vpc_id}}'.",
+      "inputSchema": "⬤ Start — Workflow begins here",
+      "outputSchema": "Passes to: Check: Create Base Security Group",
+      "retryPolicy": {
+        "enabled": false,
+        "maxRetries": 3,
+        "retryDelay": 5,
+        "timeout": 30
+      },
+      "code": "",
+      "codeFile": "untitled.py",
+      "timeout": 30,
+      "retryOnFail": false,
+      "actionConfig": {
+        "actionType": "create_security_group",
+        "endpointOrTool": "https://api.aws.com/v1/security-groups/{{vpc_id}}/create",
+        "method": "POST",
+        "headers": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{aws_api_token}}"
+          }
+        ],
+        "payload": "{\"GroupName\": \"{{GroupName}}\", \"Description\": \"{{Description}}\"}",
+        "executionSettings": {
+          "timeoutMs": 10000,
+          "maxRetries": 3,
+          "continueOnError": false
+        }
+      }
+    },
+    "block_1": {
+      "id": "block_1",
+      "label": "Check: Create Base Security Group",
+      "nodeType": "conditionalNode",
+      "subLabel": "Verify that 'Create Base Security Group' completed successfu",
+      "description": "Verify that 'Create Base Security Group' completed successfully.",
+      "inputSchema": "Receives from: Create Base Security Group",
+      "outputSchema": "Passes to: Verify Security Group Creation",
+      "retryPolicy": {
+        "enabled": false,
+        "maxRetries": 3,
+        "retryDelay": 5,
+        "timeout": 30
+      },
+      "code": "",
+      "codeFile": "untitled.py",
+      "timeout": 30,
+      "retryOnFail": false,
+      "conditionalConfig": {
+        "logicalOperator": "AND",
+        "rules": [
+          {
+            "variable": "{{block_0.status}}",
+            "operator": "==",
+            "compareValue": "success"
+          }
+        ]
+      }
+    },
+    "block_3": {
+      "id": "block_3",
+      "label": "Verify Security Group Creation",
+      "nodeType": "conditionalNode",
+      "subLabel": "",
+      "description": "",
+      "inputSchema": "Receives from: Check: Create Base Security Group",
+      "outputSchema": "Passes to: Format Rules for AWS API",
+      "retryPolicy": {
+        "enabled": false,
+        "maxRetries": 3,
+        "retryDelay": 5,
+        "timeout": 30
+      },
+      "code": "",
+      "codeFile": "untitled.py",
+      "timeout": 30,
+      "retryOnFail": false,
+      "conditionalConfig": {
+        "logicalOperator": "AND",
+        "rules": [
+          {
+            "variable": "{{node_1.response_body.GroupId}}",
+            "operator": "!=",
+            "compareValue": ""
+          }
+        ]
+      }
+    },
+    "block_4": {
+      "id": "block_4",
+      "label": "Format Rules for AWS API",
+      "nodeType": "codeNode",
+      "subLabel": "",
+      "description": "",
+      "inputSchema": "Receives from: Verify Security Group Creation",
+      "outputSchema": "Passes to: Attach Rules to Security Group",
+      "retryPolicy": {
+        "enabled": false,
+        "maxRetries": 3,
+        "retryDelay": 5,
+        "timeout": 30
+      },
+      "code": "",
+      "codeFile": "untitled.py",
+      "timeout": 30,
+      "retryOnFail": false,
+      "codeConfig": {
+        "language": "Python",
+        "code": "{\"IpPermissions\": [{{#inbound_rules}}{\"IpProtocol\": {{protocol}}, \"FromPort\": {{port}}, \"ToPort\": {{port}}, \"IpRanges\": [{\"CidrIp\": {{cidr}}}]}{{/inbound_rules}}, {\"IpPermissionsEgress\": [{{#outbound_rules}}{\"IpProtocol\": {{protocol}}, \"FromPort\": {{port}}, \"ToPort\": {{port}}, \"IpRanges\": [{\"CidrIp\": {{cidr}}}]}{{/outbound_rules}}]}\nreturn json.dumps(payload)",
+        "inputBindings": [
+          {
+            "envKey": "inbound_rules",
+            "mappedValue": "{{inbound_rules}}"
+          },
+          {
+            "envKey": "outbound_rules",
+            "mappedValue": "{{outbound_rules}}"
+          }
+        ],
+        "outputBindings": [
+          "formatted_payload"
+        ]
+      }
+    },
+    "block_5": {
+      "id": "block_5",
+      "label": "Attach Rules to Security Group",
+      "nodeType": "actionNode",
+      "subLabel": "",
+      "description": "",
+      "inputSchema": "Receives from: Format Rules for AWS API",
+      "outputSchema": "Passes to: Check: Attach Rules to Security Group",
+      "retryPolicy": {
+        "enabled": false,
+        "maxRetries": 3,
+        "retryDelay": 5,
+        "timeout": 30
+      },
+      "code": "",
+      "codeFile": "untitled.py",
+      "timeout": 30,
+      "retryOnFail": false,
+      "actionConfig": {
+        "actionType": "authorize_security_group_ingress_egress",
+        "endpointOrTool": "https://api.aws.com/v1/security-groups/{{node_1.response_body.GroupId}}/ingress-egress",
+        "method": "POST",
+        "headers": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{aws_api_token}}"
+          }
+        ],
+        "payload": "{{formatted_payload}}",
+        "executionSettings": {
+          "timeoutMs": 10000,
+          "maxRetries": 3,
+          "continueOnError": false
+        }
+      }
+    },
+    "block_6": {
+      "id": "block_6",
+      "label": "Check: Attach Rules to Security Group",
+      "nodeType": "conditionalNode",
+      "subLabel": "Verify that 'Attach Rules to Security Group' completed succe",
+      "description": "Verify that 'Attach Rules to Security Group' completed successfully.",
+      "inputSchema": "Receives from: Attach Rules to Security Group",
+      "outputSchema": "Passes to: Return Successful State and Security Group ID",
+      "retryPolicy": {
+        "enabled": false,
+        "maxRetries": 3,
+        "retryDelay": 5,
+        "timeout": 30
+      },
+      "code": "",
+      "codeFile": "untitled.py",
+      "timeout": 30,
+      "retryOnFail": false,
+      "conditionalConfig": {
+        "logicalOperator": "AND",
+        "rules": [
+          {
+            "variable": "{{block_5.status}}",
+            "operator": "==",
+            "compareValue": "success"
+          }
+        ]
+      }
+    },
+    "block_8": {
+      "id": "block_8",
+      "label": "Return Successful State and Security Group ID",
+      "nodeType": "resultNode",
+      "subLabel": "",
+      "description": "",
+      "inputSchema": "Receives from: Check: Attach Rules to Security Group",
+      "outputSchema": "Passes to: Notify Failure to DevOps Team",
+      "retryPolicy": {
+        "enabled": false,
+        "maxRetries": 3,
+        "retryDelay": 5,
+        "timeout": 30
+      },
+      "code": "",
+      "codeFile": "untitled.py",
+      "timeout": 30,
+      "retryOnFail": false,
+      "resultConfig": {
+        "status": "Success",
+        "outputMapping": [
+          {
+            "outputKey": "Security Group ID",
+            "mappedValue": "{{node_1.response_body.GroupId}}"
+          }
+        ],
+        "terminateExecution": true
+      }
+    },
+    "block_9": {
+      "id": "block_9",
+      "label": "Notify Failure to DevOps Team",
+      "nodeType": "notifyNode",
+      "subLabel": "",
+      "description": "",
+      "inputSchema": "Receives from: Return Successful State and Security Group ID",
+      "outputSchema": "⬤ End — Workflow completes here",
+      "retryPolicy": {
+        "enabled": false,
+        "maxRetries": 3,
+        "retryDelay": 5,
+        "timeout": 30
+      },
+      "code": "",
+      "codeFile": "untitled.py",
+      "timeout": 30,
+      "retryOnFail": false,
+      "notificationConfig": {
+        "channel": "#engineering-alerts",
+        "recipients": [],
+        "subject": "Security Group Deployment Failure: {{workflow_name}}",
+        "messageTemplate": "Error occurred while deploying security group '{{GroupName}}' in VPC '{{vpc_id}}'. Error message: {{error_message}}"
+      }
+    },
+    "block_2": {
+      "id": "block_2",
+      "label": "✗ Create Base Security Grou Failed",
+      "nodeType": "resultNode",
+      "subLabel": "The action 'Create Base Security Group' did not complete suc",
+      "description": "The action 'Create Base Security Group' did not complete successfully. Review logs and retry or escalate.",
+      "inputSchema": "⬤ Error Branch — action failed",
+      "outputSchema": "⬤ Terminal — branch ends here",
+      "retryPolicy": {
+        "enabled": false,
+        "maxRetries": 3,
+        "retryDelay": 5,
+        "timeout": 30
+      },
+      "code": "",
+      "codeFile": "untitled.py",
+      "timeout": 30,
+      "retryOnFail": false,
+      "resultConfig": {
+        "status": "Failure",
+        "outputMapping": [
+          {
+            "outputKey": "error_source",
+            "mappedValue": "{{block_0.error}}"
+          }
+        ],
+        "terminateExecution": true
+      }
+    },
+    "block_7": {
+      "id": "block_7",
+      "label": "✗ Attach Rules to Security  Failed",
+      "nodeType": "resultNode",
+      "subLabel": "The action 'Attach Rules to Security Group' did not complete",
+      "description": "The action 'Attach Rules to Security Group' did not complete successfully. Review logs and retry or escalate.",
+      "inputSchema": "⬤ Error Branch — action failed",
+      "outputSchema": "⬤ Terminal — branch ends here",
+      "retryPolicy": {
+        "enabled": false,
+        "maxRetries": 3,
+        "retryDelay": 5,
+        "timeout": 30
+      },
+      "code": "",
+      "codeFile": "untitled.py",
+      "timeout": 30,
+      "retryOnFail": false,
+      "resultConfig": {
+        "status": "Failure",
+        "outputMapping": [
+          {
+            "outputKey": "error_source",
+            "mappedValue": "{{block_5.error}}"
+          }
+        ],
+        "terminateExecution": true
+      }
+    }
+  },
+  "createdAt": "2026-03-09T18:10:39.911Z",
+  "updatedAt": "2026-03-09T18:10:39.911Z",
+  "version": 1
+}

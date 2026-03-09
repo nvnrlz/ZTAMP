@@ -159,6 +159,10 @@ class ChatRequest(BaseModel):
         default=None,
         description="Override the default LLM model for this request"
     )
+    template_content: Optional[str] = Field(
+        default=None,
+        description="Optional YAML workflow template content to guide the planner"
+    )
 
 
 class ChatResponse(BaseModel):
@@ -235,6 +239,7 @@ async def chat(request: ChatRequest):
             session_id=request.session_id,
             use_rag=request.use_rag,
             model_override=request.model,
+            template_content=request.template_content,
         )
         return ChatResponse(**response.to_dict())
 

@@ -444,6 +444,10 @@ export default function PlannerSidebar({ isExpanded, onCollapse, onExpand }: Pla
     const [showSlashMenu, setShowSlashMenu] = useState(false);
     const [slashMenuIndex, setSlashMenuIndex] = useState(0);
 
+    // Workflow template state
+    const [templateContent, setTemplateContent] = useState('');
+    const [showTemplatePanel, setShowTemplatePanel] = useState(false);
+
     // Generate a unique session ID per conversation — mutable so it resets per workflow
     const generateSessionId = () =>
         'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
@@ -534,6 +538,7 @@ export default function PlannerSidebar({ isExpanded, onCollapse, onExpand }: Pla
                     session_id: sessionId,
                     use_rag: useRag,
                     model: selectedModel || undefined,
+                    template_content: templateContent.trim() || null,
                 }),
             });
 
@@ -1386,6 +1391,156 @@ export default function PlannerSidebar({ isExpanded, onCollapse, onExpand }: Pla
                 <div ref={chatEndRef} />
             </div>
 
+            {/* Instruction Template Panel */}
+            {showTemplatePanel && (
+                <div style={{
+                    borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+                    backgroundColor: isDark ? 'rgba(15,23,42,0.6)' : 'rgba(248,250,252,0.8)',
+                    padding: '10px 14px',
+                    maxHeight: 260,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                }}>
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                    }}>
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                        }}>
+                            <span className="material-icons-outlined" style={{
+                                fontSize: 14,
+                                color: isDark ? '#f59e0b' : '#d97706',
+                            }}>description</span>
+                            <span style={{
+                                fontSize: 11,
+                                fontWeight: 700,
+                                textTransform: 'uppercase' as const,
+                                letterSpacing: '0.06em',
+                                color: isDark ? '#f59e0b' : '#d97706',
+                            }}>Workflow Template</span>
+                            {templateContent.trim() && (
+                                <span style={{
+                                    fontSize: 9,
+                                    fontWeight: 600,
+                                    padding: '1px 6px',
+                                    borderRadius: 8,
+                                    backgroundColor: isDark ? 'rgba(245,158,11,0.15)' : 'rgba(245,158,11,0.1)',
+                                    color: isDark ? '#fbbf24' : '#d97706',
+                                }}>
+                                    {templateContent.trim().length} chars
+                                </span>
+                            )}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            {/* Upload YAML file button */}
+                            <label
+                                title="Upload .yaml / .yml file"
+                                style={{
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: 3,
+                                    borderRadius: 5,
+                                    color: isDark ? '#6b7280' : '#9ca3af',
+                                    transition: 'all 0.15s',
+                                }}
+                                onMouseEnter={e => {
+                                    e.currentTarget.style.color = isDark ? '#f59e0b' : '#d97706';
+                                    e.currentTarget.style.backgroundColor = isDark ? 'rgba(245,158,11,0.1)' : 'rgba(245,158,11,0.06)';
+                                }}
+                                onMouseLeave={e => {
+                                    e.currentTarget.style.color = isDark ? '#6b7280' : '#9ca3af';
+                                    e.currentTarget.style.backgroundColor = 'transparent';
+                                }}
+                            >
+                                <span className="material-icons" style={{ fontSize: 15 }}>upload_file</span>
+                                <input
+                                    type="file"
+                                    accept=".yaml,.yml,.txt"
+                                    style={{ display: 'none' }}
+                                    onChange={e => {
+                                        const file = e.target.files?.[0];
+                                        if (file) {
+                                            const reader = new FileReader();
+                                            reader.onload = ev => {
+                                                const content = ev.target?.result as string;
+                                                if (content) setTemplateContent(content);
+                                            };
+                                            reader.readAsText(file);
+                                        }
+                                        e.target.value = '';
+                                    }}
+                                />
+                            </label>
+                            {/* Clear button */}
+                            {templateContent.trim() && (
+                                <button
+                                    onClick={() => setTemplateContent('')}
+                                    title="Clear template"
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        padding: 3,
+                                        borderRadius: 5,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        color: isDark ? '#6b7280' : '#9ca3af',
+                                        transition: 'all 0.15s',
+                                    }}
+                                    onMouseEnter={e => {
+                                        e.currentTarget.style.color = '#ef4444';
+                                        e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.1)';
+                                    }}
+                                    onMouseLeave={e => {
+                                        e.currentTarget.style.color = isDark ? '#6b7280' : '#9ca3af';
+                                        e.currentTarget.style.backgroundColor = 'transparent';
+                                    }}
+                                >
+                                    <span className="material-icons" style={{ fontSize: 15 }}>delete_outline</span>
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                    <textarea
+                        value={templateContent}
+                        onChange={e => setTemplateContent(e.target.value)}
+                        placeholder={`# Paste your YAML workflow template here...\n\nname: My Workflow\ninputs:\n  - name: bucket_name\n    type: String\n    required: true\nsteps:\n  - name: Create S3 Bucket\n    type: action\n    action: create\n    ...`}
+                        style={{
+                            width: '100%',
+                            minHeight: 120,
+                            maxHeight: 200,
+                            resize: 'vertical',
+                            border: `1px solid ${isDark ? 'rgba(245,158,11,0.2)' : 'rgba(245,158,11,0.25)'}`,
+                            borderRadius: 8,
+                            padding: '8px 10px',
+                            fontSize: 12,
+                            fontFamily: '"SF Mono", "Fira Code", "Cascadia Code", monospace',
+                            lineHeight: 1.5,
+                            backgroundColor: isDark ? 'rgba(15,23,42,0.8)' : '#fff',
+                            color: isDark ? '#e5e7eb' : '#1f2937',
+                            outline: 'none',
+                            transition: 'border-color 0.15s, box-shadow 0.15s',
+                            tabSize: 2,
+                        }}
+                        onFocus={e => {
+                            e.currentTarget.style.borderColor = isDark ? '#f59e0b' : '#d97706';
+                            e.currentTarget.style.boxShadow = `0 0 0 2px ${isDark ? 'rgba(245,158,11,0.2)' : 'rgba(245,158,11,0.15)'}`;
+                        }}
+                        onBlur={e => {
+                            e.currentTarget.style.borderColor = isDark ? 'rgba(245,158,11,0.2)' : 'rgba(245,158,11,0.25)';
+                            e.currentTarget.style.boxShadow = 'none';
+                        }}
+                    />
+                </div>
+            )}
+
             {/* Input bar */}
             <div style={inputBar(isDark)}>
                 {/* Attached files */}
@@ -1581,6 +1736,58 @@ export default function PlannerSidebar({ isExpanded, onCollapse, onExpand }: Pla
                         }}
                     >
                         <span className="material-icons" style={{ fontSize: 15 }}>add</span>
+                    </button>
+
+                    {/* Template toggle button */}
+                    <button
+                        style={{
+                            background: 'none',
+                            border: `1px solid ${showTemplatePanel
+                                ? (isDark ? 'rgba(245,158,11,0.4)' : 'rgba(245,158,11,0.35)')
+                                : (isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)')
+                                }`,
+                            borderRadius: 6,
+                            cursor: 'pointer',
+                            padding: '3px 6px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: showTemplatePanel
+                                ? (isDark ? '#f59e0b' : '#d97706')
+                                : (isDark ? '#6b7280' : '#9ca3af'),
+                            backgroundColor: showTemplatePanel
+                                ? (isDark ? 'rgba(245,158,11,0.1)' : 'rgba(245,158,11,0.06)')
+                                : 'transparent',
+                            transition: 'all 0.15s',
+                            position: 'relative' as const,
+                        }}
+                        onClick={() => setShowTemplatePanel(!showTemplatePanel)}
+                        title={showTemplatePanel ? 'Hide workflow template' : 'Add workflow template (YAML)'}
+                        onMouseEnter={e => {
+                            if (!showTemplatePanel) {
+                                e.currentTarget.style.color = isDark ? '#f59e0b' : '#d97706';
+                                e.currentTarget.style.borderColor = isDark ? 'rgba(245,158,11,0.3)' : 'rgba(245,158,11,0.25)';
+                            }
+                        }}
+                        onMouseLeave={e => {
+                            if (!showTemplatePanel) {
+                                e.currentTarget.style.color = isDark ? '#6b7280' : '#9ca3af';
+                                e.currentTarget.style.borderColor = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
+                            }
+                        }}
+                    >
+                        <span className="material-icons-outlined" style={{ fontSize: 15 }}>description</span>
+                        {templateContent.trim() && (
+                            <span style={{
+                                position: 'absolute',
+                                top: -3,
+                                right: -3,
+                                width: 7,
+                                height: 7,
+                                borderRadius: '50%',
+                                backgroundColor: isDark ? '#f59e0b' : '#d97706',
+                            }} />
+                        )}
                     </button>
 
                     {/* RAG toggle (segmented control) */}
