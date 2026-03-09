@@ -1,36 +1,10 @@
 """
 canvas_agent.py — The Canvas Agent (v4: Dynamic Schema-Driven Mapping)
 
-━━━━━━━━ MULTI-AGENT ORCHESTRATION ENGINE ━━━━━━━━━━━━━━━━
+Deterministic mapper: PlannerAgent JSON → React Flow nodes/edges + A2UI protocol.
+No LLM used. See backend/prompts/canvas_agent.md for full documentation.
 
-Architecture:
-  PlannerAgent (Llama 3.1 8B) → structured JSON workflow with typed payloads
-  CanvasAgent  (deterministic) → React Flow nodes/edges + A2UI + typed configs
-  CodingAgent  (Qwen 2.5)     → Python code per block (future)
-
-The Planner Agent now outputs validated JSON with typed payloads:
-  - action_payload, conditional_payload, code_payload, etc.
-  - Variable interpolation via {{node_id.output_key}} syntax
-
-This Canvas Agent:
-  1. Maps each planner step to the BLOCK_CATALOG React Flow component.
-  2. Auto-injects ConditionalNodes after every action_block for defensive design.
-  3. Generates branching edges (true/false) for ConditionalNodes.
-  4. Builds typed node configs matching the new dynamic TypeScript interfaces.
-  5. Provides runtime interpolation utility for {{variable}} resolution.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-A2UI Protocol Compliance (v0.8):
-  - surfaceUpdate, dataModelUpdate, beginRendering
-
-Block Type Catalog (matches PlannerAgent block_type field):
-  action_block       → ActionNode      (blue)   — HTTP/API actions
-  conditional_block  → ConditionalNode (yellow) — branching / checks
-  result_block       → ResultNode      (green)  — success/failure terminal
-  notification_block → NotifyNode      (purple) — alerts / notifications
-  code_block         → CodeNode        (grey)   — custom scripts
-  parameter_block    → ParamNode       (orange) — parameter collection
+Pipeline: PlannerAgent (LLM) → CanvasAgent (this) → CodingAgent (LLM)
 """
 
 import logging
