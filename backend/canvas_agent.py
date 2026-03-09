@@ -1,24 +1,23 @@
 """
-canvas_agent.py — The Canvas Agent (v3: Planner-JSON Step Mapping)
+canvas_agent.py — The Canvas Agent (v4: Dynamic Schema-Driven Mapping)
 
 ━━━━━━━━ MULTI-AGENT ORCHESTRATION ENGINE ━━━━━━━━━━━━━━━━
 
 Architecture:
-  PlannerAgent (Llama 3.1 8B) → structured JSON workflow
-  CanvasAgent  (deterministic) → React Flow nodes/edges + A2UI
+  PlannerAgent (Llama 3.1 8B) → structured JSON workflow with typed payloads
+  CanvasAgent  (deterministic) → React Flow nodes/edges + A2UI + typed configs
   CodingAgent  (Qwen 2.5)     → Python code per block (future)
 
-The Planner Agent now outputs a validated JSON containing:
-  - intent, message_to_user
-  - workflow_parameters: { floating: [...], fixed: [...] }
-  - steps: [ { step_number, title, description, block_type, ... } ]
+The Planner Agent now outputs validated JSON with typed payloads:
+  - action_payload, conditional_payload, code_payload, etc.
+  - Variable interpolation via {{node_id.output_key}} syntax
 
 This Canvas Agent:
   1. Maps each planner step to the BLOCK_CATALOG React Flow component.
-  2. Auto-injects ConditionalNodes after every action_block to check
-     success/failure (defensive design — actions can fail by default).
+  2. Auto-injects ConditionalNodes after every action_block for defensive design.
   3. Generates branching edges (true/false) for ConditionalNodes.
-  4. Builds node configs required by the .tsx components.
+  4. Builds typed node configs matching the new dynamic TypeScript interfaces.
+  5. Provides runtime interpolation utility for {{variable}} resolution.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -26,7 +25,7 @@ A2UI Protocol Compliance (v0.8):
   - surfaceUpdate, dataModelUpdate, beginRendering
 
 Block Type Catalog (matches PlannerAgent block_type field):
-  action_block       → ActionNode      (blue)   — infrastructure actions
+  action_block       → ActionNode      (blue)   — HTTP/API actions
   conditional_block  → ConditionalNode (yellow) — branching / checks
   result_block       → ResultNode      (green)  — success/failure terminal
   notification_block → NotifyNode      (purple) — alerts / notifications
@@ -35,10 +34,63 @@ Block Type Catalog (matches PlannerAgent block_type field):
 """
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 logger = logging.getLogger("canvas_agent")
+
+
+# ─── Variable Interpolation Utility ─────────────────────
+
+def interpolate_variables(template: str, state: dict[str, Any]) -> str:
+    """
+    Replace {{variable}} placeholders in a string with actual values
+    from the runtime state dictionary.
+
+    Supports:
+      - Simple variables: {{bucket_name}} → state["bucket_name"]
+      - Dotted paths:     {{node_123.output_key}} → state["node_123"]["output_key"]
+
+    If a variable is not found in state, it is left as-is (unreplaced).
+    """
+    def _replacer(match: re.Match) -> str:
+        var_path = match.group(1).strip()
+        parts = var_path.split(".")
+        current: Any = state
+
+        for part in parts:
+            if isinstance(current, dict) and part in current:
+                current = current[part]
+            else:
+                return match.group(0)
+
+        return str(current)
+
+    return re.sub(r"\{\{(.+?)\}\}", _replacer, template)
+
+
+def interpolate_config(config: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
+    """
+    Deep-walk a config dictionary and interpolate all string values
+    that contain {{variable}} placeholders.
+    """
+    result = {}
+    for key, value in config.items():
+        if isinstance(value, str):
+            result[key] = interpolate_variables(value, state)
+        elif isinstance(value, dict):
+            result[key] = interpolate_config(value, state)
+        elif isinstance(value, list):
+            result[key] = [
+                interpolate_config(item, state) if isinstance(item, dict)
+                else interpolate_variables(item, state) if isinstance(item, str)
+                else item
+                for item in value
+            ]
+        else:
+            result[key] = value
+    return result
 
 
 # ─── A2UI Component Catalog ─────────────────────────────
@@ -145,12 +197,19 @@ class CanvasAgent:
     Translates the PlannerAgent's structured JSON workflow into
     React Flow nodes, edges, and configs for canvas rendering.
 
-    v3 Architecture:
-      1. Parse Planner JSON step array directly.
+    v4 Architecture (Dynamic Schema):
+      1. Parse Planner JSON step array with typed payloads.
       2. Auto-inject ConditionalNodes after every action_block
          (defensive: actions can fail by default).
       3. Generate branching edges for true/false paths.
-      4. Build typed node configs for each .tsx component.
+      4. Build dynamic typed node configs matching the .tsx interfaces:
+         - ActionNode: actionConfig { actionType, method, endpointOrTool, headers, payload, executionSettings }
+         - ConditionalNode: conditionalConfig { logicalOperator, rules }
+         - ResultNode: resultConfig { status, outputMapping, terminateExecution }
+         - NotifyNode: notificationConfig { channel, recipients, subject, messageTemplate }
+         - CodeNode: codeConfig { language, code, inputBindings, outputBindings }
+         - ParamNode: parameterConfig { parameters[{ key, type, defaultValue, required }] }
+      5. Supports runtime interpolation via interpolate_config().
 
     All logic is deterministic — zero LLM cost.
     """
@@ -163,7 +222,7 @@ class CanvasAgent:
     START_Y = 80
 
     def __init__(self):
-        logger.info("CanvasAgent v3 initialized (planner-JSON step mapping)")
+        logger.info("CanvasAgent v4 initialized (dynamic schema-driven mapping)")
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # Main entry point
@@ -182,7 +241,7 @@ class CanvasAgent:
           - message_to_user: str
           - intent: "action" | "question" | "clarification"
           - workflow_parameters: { floating: [...], fixed: [...] }
-          - steps: [ { step_number, title, description, block_type, ... } ]
+          - steps: [ { step_number, title, description, block_type, *_payload, ... } ]
         """
         try:
             steps = workflow_plan.get("steps", [])
@@ -206,7 +265,6 @@ class CanvasAgent:
             )
 
             # ── Step 1: Map planner steps → Canvas blocks ──
-            # This includes auto-injecting conditionals after action blocks.
             blocks = self._map_planner_steps_to_blocks(steps)
 
             if not blocks:
@@ -258,22 +316,12 @@ class CanvasAgent:
         self, planner_steps: list[dict],
     ) -> list[dict[str, Any]]:
         """
-        Iterate through the PlannerAgent's JSON steps and map each to
-        a BLOCK_CATALOG entry.
-
-        AUTO-CONDITIONAL RULE:
-          After every action_block, automatically inject:
-            1. A ConditionalNode ("Check [Action] Success")
-            2. A ResultNode for the false branch ("[Action] Failed")
-
-          Exception: If the Planner JSON already provides a diagnostic
-          or fallback step linked to the failure of that action (via
-          on_false_step), route the false branch there instead.
+        Map PlannerAgent's JSON steps to BLOCK_CATALOG entries,
+        preserving typed payloads for dynamic config building.
         """
         blocks: list[dict[str, Any]] = []
         block_idx = 0
 
-        # First pass: build a lookup of step_number → planner step
         step_lookup: dict[int, dict] = {}
         for ps in planner_steps:
             sn = ps.get("step_number")
@@ -284,7 +332,6 @@ class CanvasAgent:
             raw_type = ps.get("block_type", "action_block")
             block_type = _BLOCK_TYPE_ALIASES.get(raw_type, raw_type)
 
-            # Validate against catalog
             if block_type not in BLOCK_CATALOG:
                 logger.warning(
                     "Unknown block_type '%s' — defaulting to action_block",
@@ -310,7 +357,14 @@ class CanvasAgent:
                 "parameters_used": ps.get("parameters_used", {"floating": [], "fixed": []}),
                 "step_number": ps.get("step_number", i + 1),
                 "index": block_idx,
-                # Branching metadata (populated below for conditionals)
+                # Typed payloads from the Planner
+                "_action_payload": ps.get("action_payload"),
+                "_conditional_payload": ps.get("conditional_payload"),
+                "_code_payload": ps.get("code_payload"),
+                "_notify_payload": ps.get("notify_payload"),
+                "_result_payload": ps.get("result_payload"),
+                "_parameter_payload": ps.get("parameter_payload"),
+                # Branching metadata
                 "_next_on_true": None,
                 "_next_on_false": None,
                 "_is_error_node": False,
@@ -327,7 +381,6 @@ class CanvasAgent:
             block_idx += 1
 
             # ── AUTO-CONDITIONAL INJECTION ──
-            # After every action_block, inject a check + error node
             if block_type == "action_block":
                 action_label = title
 
@@ -343,11 +396,24 @@ class CanvasAgent:
                     "description": f"Verify that '{action_label}' completed successfully.",
                     "action_type": "validate",
                     "parameters_used": {"floating": [], "fixed": []},
-                    "step_number": None,  # synthetic
+                    "step_number": None,
                     "index": block_idx,
                     "condition": f"{block_id}_success == true",
-                    "_next_on_true": None,   # filled in wiring pass
-                    "_next_on_false": None,  # filled in wiring pass
+                    "_action_payload": None,
+                    "_conditional_payload": {
+                        "logicalOperator": "AND",
+                        "rules": [{
+                            "variable": f"{{{{{block_id}.status}}}}",
+                            "operator": "==",
+                            "compareValue": "success",
+                        }],
+                    },
+                    "_code_payload": None,
+                    "_notify_payload": None,
+                    "_result_payload": None,
+                    "_parameter_payload": None,
+                    "_next_on_true": None,
+                    "_next_on_false": None,
                     "_is_error_node": False,
                     "_is_auto_injected": True,
                     "_parent_action_id": block_id,
@@ -362,7 +428,7 @@ class CanvasAgent:
                     "block_type": "result_block",
                     "node_type": BLOCK_CATALOG["result_block"]["nodeType"],
                     "icon": BLOCK_CATALOG["result_block"]["icon"],
-                    "color": "#ef4444",  # Red for failure
+                    "color": "#ef4444",
                     "label": f"✗ {action_label[:25]} Failed",
                     "description": (
                         f"The action '{action_label}' did not complete successfully. "
@@ -372,6 +438,18 @@ class CanvasAgent:
                     "parameters_used": {"floating": [], "fixed": []},
                     "step_number": None,
                     "index": block_idx,
+                    "_action_payload": None,
+                    "_conditional_payload": None,
+                    "_code_payload": None,
+                    "_notify_payload": None,
+                    "_result_payload": {
+                        "status": "Failure",
+                        "outputMapping": [
+                            {"outputKey": "error_source", "mappedValue": f"{{{{{block_id}.error}}}}"},
+                        ],
+                        "terminateExecution": True,
+                    },
+                    "_parameter_payload": None,
                     "_next_on_true": None,
                     "_next_on_false": None,
                     "_is_error_node": True,
@@ -382,21 +460,17 @@ class CanvasAgent:
 
                 # Wire: check_block true→ next mainline, false→ error_block
                 check_block["_next_on_false"] = error_id
-                # _next_on_true is resolved in the wiring pass below
 
-        # ── Wiring pass: resolve _next_on_true / _next_on_false ──
+        # ── Wiring pass ──
         mainline_blocks = [b for b in blocks if not b.get("_is_error_node")]
 
         for idx, b in enumerate(mainline_blocks):
             if b["block_type"] == "conditional_block":
-                # Find the next mainline block for the true branch
                 if b["_next_on_true"] is None:
                     next_main_idx = idx + 1
                     if next_main_idx < len(mainline_blocks):
                         b["_next_on_true"] = mainline_blocks[next_main_idx]["id"]
 
-                # For planner-provided conditionals, resolve on_true/on_false
-                # by step_number lookup
                 planner_true = b.get("_planner_on_true")
                 planner_false = b.get("_planner_on_false")
 
@@ -410,10 +484,8 @@ class CanvasAgent:
                     if target:
                         b["_next_on_false"] = target["id"]
 
-                # Default false → error node if still unset
                 if b["_next_on_false"] is None and b.get("_is_auto_injected"):
-                    # Already set during injection
-                    pass
+                    pass  # Already set during injection
 
         logger.info(
             "Mapped %d planner steps → %d canvas blocks "
@@ -442,17 +514,10 @@ class CanvasAgent:
     def _layout_nodes(
         self, blocks: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        """
-        Calculate node positions.
-
-        Mainline blocks flow left-to-right on row Y=START_Y.
-        Error nodes (false-branch terminals) drop below their parent
-        conditional at Y=START_Y + ERROR_ROW_OFFSET.
-        """
+        """Calculate node positions."""
         positioned = []
-        main_col = 0  # Column index for mainline
+        main_col = 0
 
-        # Two-pass: first position mainline, then error nodes
         mainline_order: list[dict] = []
         error_nodes: list[dict] = []
 
@@ -462,7 +527,6 @@ class CanvasAgent:
             else:
                 mainline_order.append(b)
 
-        # Position mainline blocks
         id_to_position: dict[str, dict] = {}
         for b in mainline_order:
             x = self.START_X + (main_col * self.HORIZONTAL_SPACING)
@@ -472,9 +536,7 @@ class CanvasAgent:
             positioned.append({**b, "position": pos})
             main_col += 1
 
-        # Position error nodes below their parent conditional
         for eb in error_nodes:
-            # Find the conditional that points to this error node
             parent_pos = None
             for b in blocks:
                 if b.get("_next_on_false") == eb["id"]:
@@ -508,23 +570,12 @@ class CanvasAgent:
         workflow_params: dict[str, Any],
         attached_files: list[str],
     ) -> tuple[list[dict], list[dict], dict[str, dict]]:
-        """
-        Generate React Flow nodes, edges, and configs.
-
-        Edge generation supports branching:
-        - ConditionalNodes emit two edges:
-            True  → sourceHandle=None  (Right handle in ConditionalNode.tsx)
-            False → sourceHandle='bottom' (Bottom handle in ConditionalNode.tsx)
-        - All other nodes emit a single forward edge to the next mainline block.
-        """
+        """Generate React Flow nodes, edges, and typed configs."""
         nodes: list[dict] = []
         edges: list[dict] = []
         configs: dict[str, dict] = {}
 
-        # Build block lookup by id
         block_by_id: dict[str, dict] = {b["id"]: b for b in blocks}
-
-        # Separate mainline and error blocks for edge generation
         mainline = [b for b in blocks if not b.get("_is_error_node")]
 
         # ── Create nodes ──
@@ -540,7 +591,6 @@ class CanvasAgent:
             }
             nodes.append(node)
 
-            # Build config
             config = self._build_node_config(
                 b, blocks, workflow_params, attached_files,
             )
@@ -549,7 +599,6 @@ class CanvasAgent:
         # ── Create edges ──
         for idx, b in enumerate(mainline):
             if b["block_type"] == "conditional_block":
-                # True branch → Right handle (default source)
                 true_target = b.get("_next_on_true")
                 if true_target and true_target in block_by_id:
                     edges.append({
@@ -562,7 +611,6 @@ class CanvasAgent:
                         "style": {"stroke": "#22c55e"},
                     })
 
-                # False branch → Bottom handle
                 false_target = b.get("_next_on_false")
                 if false_target and false_target in block_by_id:
                     edges.append({
@@ -578,7 +626,6 @@ class CanvasAgent:
                     })
 
             else:
-                # Non-conditional: linear edge to next mainline block
                 next_idx = idx + 1
                 if next_idx < len(mainline):
                     next_block = mainline[next_idx]
@@ -593,7 +640,7 @@ class CanvasAgent:
         return nodes, edges, configs
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Step 4: Node Config Builder
+    # Step 4: Node Config Builder (Dynamic Schema)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     def _build_node_config(
@@ -604,16 +651,19 @@ class CanvasAgent:
         attached_files: list[str],
     ) -> dict[str, Any]:
         """
-        Build a NodeConfig for a given block.
+        Build a NodeConfig for a given block using the new dynamic schema.
 
-        Populates the properties required by the React .tsx components:
-          - label, subLabel, description, nodeType
-          - Type-specific config sections (contextConfig, conditionalConfig, etc.)
+        Populates typed config sections matching the TypeScript interfaces:
+          - actionConfig { actionType, method, endpointOrTool, headers, payload, executionSettings }
+          - conditionalConfig { logicalOperator, rules }
+          - resultConfig { status, outputMapping, terminateExecution }
+          - notificationConfig { channel, recipients, subject, messageTemplate }
+          - codeConfig { language, code, inputBindings, outputBindings }
+          - parameterConfig { parameters[{ key, type, defaultValue, required }] }
         """
         block_type = block["block_type"]
         label = block.get("label", "")
         description = block.get("description", "")
-        params_used = block.get("parameters_used", {"floating": [], "fixed": []})
 
         # ── Find neighbors for input/output descriptions ──
         mainline = [b for b in all_blocks if not b.get("_is_error_node")]
@@ -632,7 +682,6 @@ class CanvasAgent:
             next_label = mainline[my_idx + 1].get("label", "Next")
             output_desc = f"Passes to: {next_label}"
 
-        # For error nodes, override descriptions
         if block.get("_is_error_node"):
             input_desc = "⬤ Error Branch — action failed"
             output_desc = "⬤ Terminal — branch ends here"
@@ -645,7 +694,6 @@ class CanvasAgent:
             "description": description,
             "inputSchema": input_desc,
             "outputSchema": output_desc,
-            "parametersUsed": params_used,
             "retryPolicy": {
                 "enabled": False,
                 "maxRetries": 3,
@@ -658,108 +706,110 @@ class CanvasAgent:
             "retryOnFail": False,
         }
 
-        # ── Type-specific configs ──
+        # ── Type-specific configs (dynamic schema) ──
 
         if block_type == "action_block":
-            floating_params = params_used.get("floating", [])
-            fixed_params = params_used.get("fixed", [])
-
-            # Build context sources from attached files and floating params
-            context_sources = attached_files[:]
-            config["contextConfig"] = {
-                "contextSources": context_sources,
-                "query": description or label,
-                "floatingParameters": floating_params,
-                "fixedParameters": fixed_params,
-                "actionType": block.get("action_type", ""),
+            ap = block.get("_action_payload") or {}
+            config["actionConfig"] = {
+                "actionType": ap.get("actionType", block.get("action_type", "")),
+                "endpointOrTool": ap.get("endpointOrTool", ""),
+                "method": ap.get("method", "GET"),
+                "headers": ap.get("headers", []),
+                "payload": ap.get("payload", ""),
+                "executionSettings": ap.get("executionSettings", {
+                    "timeoutMs": 30000,
+                    "maxRetries": 3,
+                    "continueOnError": False,
+                }),
             }
 
         elif block_type == "conditional_block":
+            cp = block.get("_conditional_payload") or {}
             condition = block.get("condition", "")
-            rules = []
 
-            if condition:
-                # Parse simple conditions like "step_1_success == true"
+            # Use typed rules if provided, otherwise parse from condition string
+            rules = cp.get("rules", [])
+            if not rules and condition:
                 parts = condition.split()
                 field_name = parts[0] if parts else "result"
                 operator = parts[1] if len(parts) > 1 else "=="
                 value = parts[2] if len(parts) > 2 else "true"
-
-                rules.append({
-                    "id": "rule-1",
-                    "field": field_name,
+                rules = [{
+                    "variable": field_name,
                     "operator": operator,
-                    "value": value,
-                    "branchLabel": "True",
-                })
+                    "compareValue": value,
+                }]
 
             if not rules:
                 rules = [{
-                    "id": "rule-1",
-                    "field": "success",
+                    "variable": "success",
                     "operator": "==",
-                    "value": "true",
-                    "branchLabel": "True",
+                    "compareValue": "true",
                 }]
 
             config["conditionalConfig"] = {
-                "condition": condition,
+                "logicalOperator": cp.get("logicalOperator", "AND"),
                 "rules": rules,
-                "defaultBranch": "False",
-                "trueBranch": block.get("_next_on_true", ""),
-                "falseBranch": block.get("_next_on_false", ""),
             }
 
         elif block_type == "result_block":
+            rp = block.get("_result_payload") or {}
             is_error = block.get("_is_error_node", False)
             config["resultConfig"] = {
-                "outputFormat": "Error Report" if is_error else "Report",
-                "status": "failure" if is_error else "success",
-                "template": "",
-                "destination": "",
+                "status": rp.get("status", "Failure" if is_error else "Success"),
+                "outputMapping": rp.get("outputMapping", []),
+                "terminateExecution": rp.get("terminateExecution", True),
             }
 
         elif block_type == "notification_block":
+            np = block.get("_notify_payload") or {}
             config["notificationConfig"] = {
-                "service": "Email",
-                "recipient": "",
-                "messageTemplate": description,
-                "attachment": "",
+                "channel": np.get("channel", "Email"),
+                "recipients": np.get("recipients", []),
+                "subject": np.get("subject", ""),
+                "messageTemplate": np.get("messageTemplate", description),
             }
 
         elif block_type == "code_block":
+            cdp = block.get("_code_payload") or {}
             config["codeConfig"] = {
-                "code": f"# {description}\n# Auto-generated by Canvas Agent\n",
-                "codeFile": "workflow_step.py",
-                "libraryImports": [],
+                "language": cdp.get("language", "Python"),
+                "code": cdp.get("code", f"# {description}\n# Auto-generated by Canvas Agent\n"),
+                "inputBindings": cdp.get("inputBindings", []),
+                "outputBindings": cdp.get("outputBindings", []),
             }
 
         elif block_type == "parameter_block":
-            # Build parameter entries from workflow_params
-            params = []
-            for p in workflow_params.get("floating", []):
-                if isinstance(p, dict):
-                    params.append({
-                        "name": p.get("name", ""),
-                        "type": "string",
-                        "defaultValue": p.get("value") or "",
-                        "description": p.get("description", ""),
-                    })
-            for p in workflow_params.get("fixed", []):
-                if isinstance(p, dict):
-                    params.append({
-                        "name": p.get("name", ""),
-                        "type": "string",
-                        "defaultValue": p.get("value") or "",
-                        "description": p.get("description", ""),
-                    })
+            pp = block.get("_parameter_payload") or {}
+            params = pp.get("parameters", [])
+
+            # Fallback: build from workflow_params if no typed payload
+            if not params:
+                for p in workflow_params.get("floating", []):
+                    if isinstance(p, dict):
+                        params.append({
+                            "key": p.get("name", ""),
+                            "type": "String",
+                            "defaultValue": p.get("value") or "",
+                            "required": True,
+                        })
+                for p in workflow_params.get("fixed", []):
+                    if isinstance(p, dict):
+                        params.append({
+                            "key": p.get("name", ""),
+                            "type": "String",
+                            "defaultValue": p.get("value") or "",
+                            "required": False,
+                        })
+
             if not params:
                 params = [{
-                    "name": "input_param",
-                    "type": "string",
+                    "key": "input_param",
+                    "type": "String",
                     "defaultValue": "",
-                    "description": "",
+                    "required": True,
                 }]
+
             config["parameterConfig"] = {"parameters": params}
 
         return config
@@ -773,14 +823,7 @@ class CanvasAgent:
         blocks: list[dict[str, Any]],
         goal: str,
     ) -> list[dict[str, Any]]:
-        """
-        Generate A2UI protocol compliant messages.
-
-        Message sequence:
-        1. surfaceUpdate — registers all components
-        2. dataModelUpdate — sets dynamic values
-        3. beginRendering — tells the UI to render
-        """
+        """Generate A2UI protocol compliant messages."""
         messages = []
         components = []
 
@@ -798,7 +841,6 @@ class CanvasAgent:
                 "adjacentComponents": [],
             }
 
-            # Wire adjacency for non-error mainline blocks
             if not block.get("_is_error_node"):
                 if block["block_type"] == "conditional_block":
                     true_target = block.get("_next_on_true")
@@ -814,7 +856,6 @@ class CanvasAgent:
                             "relationship": "flows_to_on_false",
                         })
                 else:
-                    # Find next mainline block
                     mainline = [b for b in blocks if not b.get("_is_error_node")]
                     mainline_ids = [b["id"] for b in mainline]
                     if block["id"] in mainline_ids:

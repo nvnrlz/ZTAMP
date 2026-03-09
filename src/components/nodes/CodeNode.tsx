@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { colors } from '../../theme';
 import type { WorkflowNodeData, LiveState } from '../../data/workflowData';
+import { useWorkflow } from '../../context/WorkflowContext';
 
 /* ─── Live state glow colors ─── */
 const stateGlow: Record<LiveState, string> = {
@@ -23,20 +24,20 @@ const stateBorderColor: Record<LiveState, string> = {
 
 /**
  * E. Code Block — Grey Rectangle
- * Purpose: Custom logic and data transformation using Python 3.11
+ * Shows: language badge (Python/JavaScript) + binding count
  */
 const nodeStyle = (isDark: boolean, liveState: LiveState = 'idle'): CSSProperties => ({
     border: `2px solid ${stateBorderColor[liveState]}`,
     backgroundColor: isDark ? '#1e293b' : '#f9fafb',
-    width: 160,
-    height: 76,
+    width: 180,
+    minHeight: 76,
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
     textAlign: 'center',
     borderRadius: 10,
-    padding: '4px 8px',
+    padding: '8px 10px',
     boxShadow: liveState !== 'idle'
         ? stateGlow[liveState]
         : '0 2px 8px rgba(0,0,0,0.06)',
@@ -66,11 +67,12 @@ const labelStyle = (isDark: boolean): CSSProperties => ({
     lineHeight: 1.2,
 });
 
-const pythonTag = (isDark: boolean): CSSProperties => ({
+const langTag = (lang: string, isDark: boolean): CSSProperties => ({
     fontSize: 8,
-    fontWeight: 600,
-    color: isDark ? '#9ca3af' : '#6b7280',
-    backgroundColor: isDark ? '#374151' : '#e5e7eb',
+    fontWeight: 700,
+    color: '#ffffff',
+    backgroundColor: lang === 'Python' ? '#3572A5' : '#f7df1e',
+    ...(lang === 'JavaScript' ? { color: '#000' } : {}),
     padding: '1px 6px',
     borderRadius: 3,
     marginTop: 3,
@@ -79,12 +81,26 @@ const pythonTag = (isDark: boolean): CSSProperties => ({
     letterSpacing: '0.04em',
 });
 
+const bindingTag = (isDark: boolean): CSSProperties => ({
+    fontSize: 8,
+    fontWeight: 500,
+    color: isDark ? '#6b7280' : '#9ca3af',
+    marginTop: 2,
+    fontFamily: "'Inter', sans-serif",
+});
+
 const handleStyle = { background: colors.nodeGrey, width: 8, height: 8 };
 
-export default function CodeNode({ data }: NodeProps) {
+export default function CodeNode({ data, id }: NodeProps) {
     const { isDark } = useTheme();
+    const { nodeConfigs } = useWorkflow();
     const d = data as WorkflowNodeData;
     const state = d.liveState || 'idle';
+    const config = nodeConfigs[id]?.codeConfig;
+
+    const language = config?.language || 'Python';
+    const inputCount = config?.inputBindings?.length || 0;
+    const outputCount = config?.outputBindings?.length || 0;
 
     return (
         <div style={nodeStyle(isDark, state)}>
@@ -94,7 +110,12 @@ export default function CodeNode({ data }: NodeProps) {
             <Handle type="target" position={Position.Left} style={handleStyle} />
             <Handle type="target" position={Position.Top} id="top" style={handleStyle} />
             <span style={labelStyle(isDark)}>{d.label}</span>
-            <span style={pythonTag(isDark)}>Python 3.11</span>
+            <span style={langTag(language, isDark)}>{language}</span>
+            {(inputCount > 0 || outputCount > 0) && (
+                <span style={bindingTag(isDark)}>
+                    {inputCount} in · {outputCount} out
+                </span>
+            )}
             <Handle type="source" position={Position.Right} style={handleStyle} />
             <Handle type="source" position={Position.Bottom} id="bottom" style={handleStyle} />
         </div>

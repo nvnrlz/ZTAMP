@@ -3,8 +3,7 @@ import { useTheme } from '../context/ThemeContext';
 import {
     useWorkflow,
     type NodeConfig,
-    type ConditionRule,
-    type ContextBlockConfig,
+    type ActionBlockConfig,
     type ConditionalBlockConfig,
     type ResultBlockConfig,
     type NotificationBlockConfig,
@@ -12,6 +11,13 @@ import {
     type ParameterBlockConfig,
     type RetryPolicy,
 } from '../context/WorkflowContext';
+import type {
+    ActionHeaderEntry,
+    ConditionalRule,
+    CodeInputBinding,
+    OutputMappingEntry,
+    ParamNodeParameter,
+} from '../data/workflowData';
 import { colors, shadows, fonts } from '../theme';
 
 /* ─── Node type → friendly labels & icons ─── */
@@ -25,10 +31,11 @@ const NODE_TYPE_META: Record<string, { label: string; icon: string; color: strin
     selectedNode: { label: 'Python Logic', icon: 'code', color: colors.primary },
 };
 
-const OPERATOR_OPTIONS = ['>', '<', '>=', '<=', '==', '!=', 'contains', 'starts_with'];
-const FORMAT_OPTIONS = ['Excel', 'JSON', 'PDF', 'CSV'];
-const SERVICE_OPTIONS = ['Slack', 'Email', 'PagerDuty', 'Webhook'];
-const LIBRARY_OPTIONS = ['pandas', 'numpy', 'scipy', 'requests', 'beautifulsoup4', 'openpyxl', 'xlsxwriter', 'matplotlib', 'seaborn', 'scikit-learn'];
+const OPERATOR_OPTIONS = ['>', '<', '>=', '<=', '==', '!=', 'contains', 'starts_with', 'in', 'not_in'];
+const METHOD_OPTIONS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'];
+const CHANNEL_OPTIONS = ['Email', 'Slack', 'PagerDuty', 'Webhook', 'SNS', 'Teams'];
+const LANGUAGE_OPTIONS: Array<'Python' | 'JavaScript'> = ['Python', 'JavaScript'];
+const PARAM_TYPE_OPTIONS: Array<'String' | 'Number' | 'Boolean' | 'JSON'> = ['String', 'Number', 'Boolean', 'JSON'];
 
 /* ══════════════════════════════════════════════
    Shared Styles
@@ -287,24 +294,26 @@ const testBtn = (isDark: boolean): CSSProperties => ({
     transition: 'background-color 0.15s', fontFamily: fonts.display,
 });
 
-/* ─── Rule builder row style ─── */
-const ruleRow = (isDark: boolean): CSSProperties => ({
+/* ─── Dynamic list row styles ─── */
+const listRow = (isDark: boolean): CSSProperties => ({
     display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8,
     padding: 10, borderRadius: 10,
     backgroundColor: isDark ? '#111827' : '#f9fafb',
     border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
 });
 
-const ruleInput = (isDark: boolean, width: number): CSSProperties => ({
-    width, padding: '6px 8px', fontSize: 12, borderRadius: 8,
+const listInput = (isDark: boolean, width?: number): CSSProperties => ({
+    flex: width ? undefined : 1,
+    width: width || undefined,
+    padding: '6px 8px', fontSize: 12, borderRadius: 8,
     border: `1px solid ${isDark ? '#4b5563' : '#d1d5db'}`,
     backgroundColor: isDark ? '#1f2937' : '#ffffff',
     color: isDark ? '#d1d5db' : '#374151',
     outline: 'none', fontFamily: fonts.display, boxSizing: 'border-box',
 });
 
-const ruleSelect = (isDark: boolean): CSSProperties => ({
-    ...ruleInput(isDark, 80),
+const listSelect = (isDark: boolean): CSSProperties => ({
+    ...listInput(isDark, 100),
     cursor: 'pointer', appearance: 'none',
     backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'%3E%3Cpath d='M2 3L4 5L6 3' stroke='%236b7280' stroke-width='1' fill='none'/%3E%3C/svg%3E")`,
     backgroundRepeat: 'no-repeat', backgroundPosition: 'right 6px center',
@@ -337,103 +346,164 @@ const smallBtn = (isDark: boolean): CSSProperties => ({
     transition: 'background-color 0.15s',
 });
 
-const paramRow = (isDark: boolean): CSSProperties => ({
-    display: 'grid', gridTemplateColumns: '1fr 80px 1fr 28px', gap: 6,
-    alignItems: 'center', marginBottom: 6,
-    padding: '6px 8px', borderRadius: 8,
-    backgroundColor: isDark ? '#111827' : '#f9fafb',
-    border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
-});
-
-const sourceChip = (isDark: boolean): CSSProperties => ({
-    display: 'flex', alignItems: 'center', gap: 6,
-    padding: '8px 12px', borderRadius: 10,
-    backgroundColor: isDark ? '#111827' : '#f0f9ff',
-    border: `1px solid ${isDark ? '#374151' : '#bae6fd'}`,
-    marginBottom: 6,
-});
+const removeBtn: CSSProperties = {
+    background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex',
+};
 
 /* ══════════════════════════════════════════════
    Type-Specific Property Editors
    ══════════════════════════════════════════════ */
 
-/** A. Context Block Properties */
-function ContextProperties({
+/** A. Action Block Properties */
+function ActionProperties({
     cfg, isDark, update,
 }: { cfg: NodeConfig; isDark: boolean; update: (u: Partial<NodeConfig>) => void }) {
-    const config: ContextBlockConfig = cfg.contextConfig || { contextSources: [], query: '' };
+    const config: ActionBlockConfig = cfg.actionConfig || {
+        actionType: '', endpointOrTool: '', method: 'GET',
+        headers: [], payload: '',
+        executionSettings: { timeoutMs: 30000, maxRetries: 3, continueOnError: false },
+    };
 
-    const addSource = () => {
-        update({ contextConfig: { ...config, contextSources: [...config.contextSources, ''] } });
+    const updateConfig = (updates: Partial<ActionBlockConfig>) => {
+        update({ actionConfig: { ...config, ...updates } });
     };
-    const removeSource = (idx: number) => {
-        const next = config.contextSources.filter((_, i) => i !== idx);
-        update({ contextConfig: { ...config, contextSources: next } });
+
+    const addHeader = () => {
+        updateConfig({ headers: [...config.headers, { key: '', value: '' }] });
     };
-    const updateSource = (idx: number, val: string) => {
-        const next = [...config.contextSources];
-        next[idx] = val;
-        update({ contextConfig: { ...config, contextSources: next } });
+    const removeHeader = (idx: number) => {
+        updateConfig({ headers: config.headers.filter((_, i) => i !== idx) });
+    };
+    const updateHeader = (idx: number, updates: Partial<ActionHeaderEntry>) => {
+        const next = config.headers.map((h, i) => i === idx ? { ...h, ...updates } : h);
+        updateConfig({ headers: next });
+    };
+    const updateExecSettings = (updates: Partial<typeof config.executionSettings>) => {
+        updateConfig({ executionSettings: { ...config.executionSettings, ...updates } });
     };
 
     return (
         <>
+            {/* Action Type */}
+            <div>
+                <label style={sectionLabel(isDark)}>Action Type</label>
+                <input
+                    style={inputStyle(isDark)}
+                    value={config.actionType}
+                    onChange={(e) => updateConfig({ actionType: e.target.value })}
+                    placeholder="e.g., create, configure, deploy, validate"
+                />
+            </div>
+
+            {/* Method & Endpoint */}
+            <div>
+                <label style={sectionLabel(isDark)}>Method & Endpoint</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                    <select
+                        style={{ ...selectStyle(isDark), width: 110, flex: 'none' }}
+                        value={config.method}
+                        onChange={(e) => updateConfig({ method: e.target.value })}
+                    >
+                        {METHOD_OPTIONS.map((m) => (
+                            <option key={m} value={m}>{m}</option>
+                        ))}
+                    </select>
+                    <input
+                        style={{ ...inputStyle(isDark), flex: 1 }}
+                        value={config.endpointOrTool}
+                        onChange={(e) => updateConfig({ endpointOrTool: e.target.value })}
+                        placeholder="https://api.example.com/{{resource_id}}/action"
+                    />
+                </div>
+            </div>
+
+            {/* Headers — dynamic list */}
             <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <label style={sectionLabel(isDark)}>Context Sources</label>
-                    <button style={smallBtn(isDark)} onClick={addSource}>
-                        <span className="material-icons" style={{ fontSize: 14 }}>add</span> Add Source
+                    <label style={sectionLabel(isDark)}>
+                        Headers
+                        <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6, fontSize: 10, color: isDark ? '#6b7280' : '#9ca3af' }}>
+                            ({config.headers.length})
+                        </span>
+                    </label>
+                    <button style={smallBtn(isDark)} onClick={addHeader}>
+                        <span className="material-icons" style={{ fontSize: 14 }}>add</span> Add Row
                     </button>
                 </div>
-                {config.contextSources.length === 0 && (
-                    <div style={{ ...sourceChip(isDark), justifyContent: 'center', color: isDark ? '#6b7280' : '#9ca3af', fontStyle: 'italic', fontSize: 13 }}>
-                        No sources added yet — click "Add Source"
+                {config.headers.map((h, i) => (
+                    <div key={i} style={listRow(isDark)}>
+                        <input
+                            style={listInput(isDark)}
+                            value={h.key}
+                            onChange={(e) => updateHeader(i, { key: e.target.value })}
+                            placeholder="Header key"
+                        />
+                        <input
+                            style={listInput(isDark)}
+                            value={h.value}
+                            onChange={(e) => updateHeader(i, { value: e.target.value })}
+                            placeholder="Header value"
+                        />
+                        <button style={removeBtn} onClick={() => removeHeader(i)}>
+                            <span className="material-icons" style={{ fontSize: 14, color: '#ef4444' }}>delete</span>
+                        </button>
+                    </div>
+                ))}
+                {config.headers.length === 0 && (
+                    <div style={{ textAlign: 'center', padding: 12, color: isDark ? '#6b7280' : '#9ca3af', fontSize: 12, fontStyle: 'italic' }}>
+                        No headers — click "Add Row"
                     </div>
                 )}
-                {config.contextSources.map((src, i) => {
-                    // Detect if this source is a file (has an extension)
-                    const isFile = /\.[a-zA-Z0-9]{2,5}$/.test(src);
-                    const fileExt = isFile ? src.split('.').pop()?.toUpperCase() : null;
-                    const fileIcon = isFile ? 'description' : 'source';
-                    const fileColor = isFile ? '#f97316' : colors.nodeBlue;
-
-                    return (
-                        <div key={i} style={sourceChip(isDark)}>
-                            <span className="material-icons" style={{ fontSize: 16, color: fileColor }}>{fileIcon}</span>
-                            {isFile && fileExt && (
-                                <span style={{
-                                    fontSize: 9, fontWeight: 700, color: '#fff',
-                                    backgroundColor: fileColor, padding: '1px 5px',
-                                    borderRadius: 4, textTransform: 'uppercase',
-                                    letterSpacing: '0.03em', flexShrink: 0,
-                                }}>
-                                    {fileExt}
-                                </span>
-                            )}
-                            <input
-                                style={{ ...inputStyle(isDark), border: 'none', boxShadow: 'none', padding: '4px 0', flex: 1, backgroundColor: 'transparent' }}
-                                value={src}
-                                onChange={(e) => updateSource(i, e.target.value)}
-                                placeholder={`Document / DB source ${i + 1}`}
-                            />
-                            <button
-                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex' }}
-                                onClick={() => removeSource(i)}
-                            >
-                                <span className="material-icons" style={{ fontSize: 16, color: '#ef4444' }}>close</span>
-                            </button>
-                        </div>
-                    );
-                })}
             </div>
+
+            {/* Payload */}
             <div>
-                <label style={sectionLabel(isDark)}>Task Instructions</label>
+                <label style={sectionLabel(isDark)}>Payload / Body</label>
                 <textarea
-                    style={textareaStyle(isDark)}
-                    value={config.query}
-                    onChange={(e) => update({ contextConfig: { ...config, query: e.target.value } })}
-                    placeholder="e.g., Fetch all sales data from Q4 2024 for the APAC region and analyze trends..."
+                    style={{ ...textareaStyle(isDark), fontFamily: fonts.mono, minHeight: 120 }}
+                    value={config.payload}
+                    onChange={(e) => updateConfig({ payload: e.target.value })}
+                    placeholder={'{\n  "key": "{{variable}}",\n  "data": { ... }\n}'}
+                    spellCheck={false}
                 />
+            </div>
+
+            {/* Execution Settings */}
+            <div>
+                <label style={sectionLabel(isDark)}>Execution Settings</label>
+                <div style={settingsContainer(isDark)}>
+                    <div style={settingsRow}>
+                        <span style={settingsLabel(isDark)}>Timeout (ms)</span>
+                        <input
+                            type="number"
+                            value={config.executionSettings.timeoutMs}
+                            onChange={(e) => updateExecSettings({ timeoutMs: parseInt(e.target.value) || 30000 })}
+                            style={numInput(isDark)}
+                        />
+                    </div>
+                    <div style={{ ...sectionDivider(isDark) }} />
+                    <div style={settingsRow}>
+                        <span style={settingsLabel(isDark)}>Max Retries</span>
+                        <input
+                            type="number"
+                            value={config.executionSettings.maxRetries}
+                            onChange={(e) => updateExecSettings({ maxRetries: Math.min(10, Math.max(0, parseInt(e.target.value) || 0)) })}
+                            style={numInput(isDark)}
+                            min={0} max={10}
+                        />
+                    </div>
+                    <div style={{ ...sectionDivider(isDark) }} />
+                    <div style={settingsRow}>
+                        <span style={settingsLabel(isDark)}>Continue on Error</span>
+                        <button
+                            style={toggleTrack(config.executionSettings.continueOnError, isDark)}
+                            onClick={() => updateExecSettings({ continueOnError: !config.executionSettings.continueOnError })}
+                            aria-label="Toggle continue on error"
+                        >
+                            <div style={toggleThumb(config.executionSettings.continueOnError)} />
+                        </button>
+                    </div>
+                </div>
             </div>
         </>
     );
@@ -444,39 +514,58 @@ function ConditionalProperties({
     cfg, isDark, update,
 }: { cfg: NodeConfig; isDark: boolean; update: (u: Partial<NodeConfig>) => void }) {
     const config: ConditionalBlockConfig = cfg.conditionalConfig || {
-        rules: [{ id: 'rule-1', field: '', operator: '>', value: '', branchLabel: 'True' }],
-        defaultBranch: 'Default',
+        logicalOperator: 'AND',
+        rules: [{ variable: '', operator: '==', compareValue: '' }],
+    };
+
+    const updateConfig = (updates: Partial<ConditionalBlockConfig>) => {
+        update({ conditionalConfig: { ...config, ...updates } });
     };
 
     const addRule = () => {
         if (config.rules.length >= 10) return;
-        const id = `rule-${Date.now()}`;
-        update({
-            conditionalConfig: {
-                ...config,
-                rules: [...config.rules, { id, field: '', operator: '>' as const, value: '', branchLabel: `Branch ${config.rules.length + 1}` }],
-            },
+        updateConfig({
+            rules: [...config.rules, { variable: '', operator: '==', compareValue: '' }],
         });
     };
 
-    const updateRule = (idx: number, updates: Partial<ConditionRule>) => {
+    const updateRule = (idx: number, updates: Partial<ConditionalRule>) => {
         const next = config.rules.map((r, i) => i === idx ? { ...r, ...updates } : r);
-        update({ conditionalConfig: { ...config, rules: next } });
+        updateConfig({ rules: next });
     };
 
     const removeRule = (idx: number) => {
-        const next = config.rules.filter((_, i) => i !== idx);
-        update({ conditionalConfig: { ...config, rules: next } });
+        updateConfig({ rules: config.rules.filter((_, i) => i !== idx) });
     };
 
     return (
         <>
+            {/* Logical Operator */}
+            <div>
+                <label style={sectionLabel(isDark)}>Logic Gate</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                    {(['AND', 'OR'] as const).map((op) => (
+                        <button
+                            key={op}
+                            style={tagChip(isDark, config.logicalOperator === op)}
+                            onClick={() => updateConfig({ logicalOperator: op })}
+                        >
+                            {config.logicalOperator === op && (
+                                <span className="material-icons" style={{ fontSize: 12 }}>check</span>
+                            )}
+                            {op}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            {/* Rules — dynamic list */}
             <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                     <label style={sectionLabel(isDark)}>
-                        Condition Builder
+                        Condition Rules
                         <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6, fontSize: 10, color: isDark ? '#6b7280' : '#9ca3af' }}>
-                            ({config.rules.length}/10 branches)
+                            ({config.rules.length}/10)
                         </span>
                     </label>
                     <button
@@ -484,60 +573,47 @@ function ConditionalProperties({
                         onClick={addRule}
                         disabled={config.rules.length >= 10}
                     >
-                        <span className="material-icons" style={{ fontSize: 14 }}>add</span> Add Branch
+                        <span className="material-icons" style={{ fontSize: 14 }}>add</span> Add Rule
                     </button>
                 </div>
 
                 {config.rules.map((rule, i) => (
-                    <div key={rule.id} style={ruleRow(isDark)}>
+                    <div key={i} style={listRow(isDark)}>
                         <span style={{ fontSize: 11, fontWeight: 700, color: colors.nodeYellow, minWidth: 16 }}>
                             {i + 1}.
                         </span>
                         <input
-                            style={ruleInput(isDark, 90)}
-                            value={rule.field}
-                            onChange={(e) => updateRule(i, { field: e.target.value })}
-                            placeholder="Field"
+                            style={listInput(isDark, 100)}
+                            value={rule.variable}
+                            onChange={(e) => updateRule(i, { variable: e.target.value })}
+                            placeholder="{{variable}}"
                         />
                         <select
-                            style={ruleSelect(isDark)}
+                            style={listSelect(isDark)}
                             value={rule.operator}
-                            onChange={(e) => updateRule(i, { operator: e.target.value as ConditionRule['operator'] })}
+                            onChange={(e) => updateRule(i, { operator: e.target.value })}
                         >
                             {OPERATOR_OPTIONS.map((op) => (
                                 <option key={op} value={op}>{op}</option>
                             ))}
                         </select>
                         <input
-                            style={ruleInput(isDark, 80)}
-                            value={rule.value}
-                            onChange={(e) => updateRule(i, { value: e.target.value })}
+                            style={listInput(isDark, 90)}
+                            value={rule.compareValue}
+                            onChange={(e) => updateRule(i, { compareValue: e.target.value })}
                             placeholder="Value"
                         />
-                        <input
-                            style={{ ...ruleInput(isDark, 80), fontSize: 11, fontWeight: 600 }}
-                            value={rule.branchLabel}
-                            onChange={(e) => updateRule(i, { branchLabel: e.target.value })}
-                            placeholder="Label"
-                        />
-                        <button
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex' }}
-                            onClick={() => removeRule(i)}
-                        >
+                        <button style={removeBtn} onClick={() => removeRule(i)}>
                             <span className="material-icons" style={{ fontSize: 14, color: '#ef4444' }}>delete</span>
                         </button>
                     </div>
                 ))}
-            </div>
 
-            <div>
-                <label style={sectionLabel(isDark)}>Default Branch Label</label>
-                <input
-                    style={inputStyle(isDark)}
-                    value={config.defaultBranch}
-                    onChange={(e) => update({ conditionalConfig: { ...config, defaultBranch: e.target.value } })}
-                    placeholder="Default"
-                />
+                {config.rules.length === 0 && (
+                    <div style={{ textAlign: 'center', padding: 16, color: isDark ? '#6b7280' : '#9ca3af', fontSize: 12, fontStyle: 'italic' }}>
+                        No rules defined — click "Add Rule"
+                    </div>
+                )}
             </div>
         </>
     );
@@ -547,30 +623,99 @@ function ConditionalProperties({
 function ResultProperties({
     cfg, isDark, update,
 }: { cfg: NodeConfig; isDark: boolean; update: (u: Partial<NodeConfig>) => void }) {
-    const config: ResultBlockConfig = cfg.resultConfig || { outputFormat: 'Excel', template: '' };
+    const config: ResultBlockConfig = cfg.resultConfig || {
+        status: 'Success', outputMapping: [], terminateExecution: true,
+    };
+
+    const updateConfig = (updates: Partial<ResultBlockConfig>) => {
+        update({ resultConfig: { ...config, ...updates } });
+    };
+
+    const addMapping = () => {
+        updateConfig({ outputMapping: [...config.outputMapping, { outputKey: '', mappedValue: '' }] });
+    };
+    const removeMapping = (idx: number) => {
+        updateConfig({ outputMapping: config.outputMapping.filter((_, i) => i !== idx) });
+    };
+    const updateMapping = (idx: number, updates: Partial<OutputMappingEntry>) => {
+        const next = config.outputMapping.map((m, i) => i === idx ? { ...m, ...updates } : m);
+        updateConfig({ outputMapping: next });
+    };
 
     return (
         <>
+            {/* Status */}
             <div>
-                <label style={sectionLabel(isDark)}>Output Format</label>
-                <select
-                    style={selectStyle(isDark)}
-                    value={config.outputFormat}
-                    onChange={(e) => update({ resultConfig: { ...config, outputFormat: e.target.value as ResultBlockConfig['outputFormat'] } })}
-                >
-                    {FORMAT_OPTIONS.map((f) => (
-                        <option key={f} value={f}>{f}</option>
+                <label style={sectionLabel(isDark)}>Result Status</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                    {(['Success', 'Failure'] as const).map((s) => (
+                        <button
+                            key={s}
+                            style={tagChip(isDark, config.status === s)}
+                            onClick={() => updateConfig({ status: s })}
+                        >
+                            <span className="material-icons" style={{ fontSize: 12 }}>
+                                {s === 'Success' ? 'check_circle' : 'cancel'}
+                            </span>
+                            {s}
+                        </button>
                     ))}
-                </select>
+                </div>
             </div>
+
+            {/* Output Mapping — dynamic list */}
             <div>
-                <label style={sectionLabel(isDark)}>Report Template</label>
-                <textarea
-                    style={{ ...textareaStyle(isDark), minHeight: 140 }}
-                    value={config.template}
-                    onChange={(e) => update({ resultConfig: { ...config, template: e.target.value } })}
-                    placeholder={`Define the structure of your ${config.outputFormat} report...\n\ne.g.:\nColumns: Name, Region, Revenue, Status\nSorting: Revenue DESC\nFilter: Status = "Active"`}
-                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <label style={sectionLabel(isDark)}>
+                        Output Mapping
+                        <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6, fontSize: 10, color: isDark ? '#6b7280' : '#9ca3af' }}>
+                            ({config.outputMapping.length})
+                        </span>
+                    </label>
+                    <button style={smallBtn(isDark)} onClick={addMapping}>
+                        <span className="material-icons" style={{ fontSize: 14 }}>add</span> Add Row
+                    </button>
+                </div>
+                {config.outputMapping.map((m, i) => (
+                    <div key={i} style={listRow(isDark)}>
+                        <input
+                            style={listInput(isDark)}
+                            value={m.outputKey}
+                            onChange={(e) => updateMapping(i, { outputKey: e.target.value })}
+                            placeholder="Output key"
+                        />
+                        <input
+                            style={listInput(isDark)}
+                            value={m.mappedValue}
+                            onChange={(e) => updateMapping(i, { mappedValue: e.target.value })}
+                            placeholder="{{node_id.field}}"
+                        />
+                        <button style={removeBtn} onClick={() => removeMapping(i)}>
+                            <span className="material-icons" style={{ fontSize: 14, color: '#ef4444' }}>delete</span>
+                        </button>
+                    </div>
+                ))}
+                {config.outputMapping.length === 0 && (
+                    <div style={{ textAlign: 'center', padding: 12, color: isDark ? '#6b7280' : '#9ca3af', fontSize: 12, fontStyle: 'italic' }}>
+                        No output mappings — click "Add Row"
+                    </div>
+                )}
+            </div>
+
+            {/* Terminate Execution */}
+            <div>
+                <div style={settingsContainer(isDark)}>
+                    <div style={settingsRow}>
+                        <span style={settingsLabel(isDark)}>Terminate Execution</span>
+                        <button
+                            style={toggleTrack(config.terminateExecution, isDark)}
+                            onClick={() => updateConfig({ terminateExecution: !config.terminateExecution })}
+                            aria-label="Toggle terminate execution"
+                        >
+                            <div style={toggleThumb(config.terminateExecution)} />
+                        </button>
+                    </div>
+                </div>
             </div>
         </>
     );
@@ -580,47 +725,101 @@ function ResultProperties({
 function NotificationProperties({
     cfg, isDark, update,
 }: { cfg: NodeConfig; isDark: boolean; update: (u: Partial<NodeConfig>) => void }) {
-    const config: NotificationBlockConfig = cfg.notificationConfig || { service: 'Email', recipient: '', messageTemplate: '' };
+    const config: NotificationBlockConfig = cfg.notificationConfig || {
+        channel: 'Email', recipients: [], subject: '', messageTemplate: '',
+    };
 
-    const serviceIcons: Record<string, string> = {
-        Slack: 'tag', Email: 'email', PagerDuty: 'warning', Webhook: 'webhook',
+    const channelIcons: Record<string, string> = {
+        Slack: 'tag', Email: 'email', PagerDuty: 'warning', Webhook: 'webhook', SNS: 'campaign', Teams: 'groups',
+    };
+
+    const updateConfig = (updates: Partial<NotificationBlockConfig>) => {
+        update({ notificationConfig: { ...config, ...updates } });
+    };
+
+    const addRecipient = () => {
+        updateConfig({ recipients: [...config.recipients, ''] });
+    };
+    const removeRecipient = (idx: number) => {
+        updateConfig({ recipients: config.recipients.filter((_, i) => i !== idx) });
+    };
+    const updateRecipient = (idx: number, val: string) => {
+        const next = [...config.recipients];
+        next[idx] = val;
+        updateConfig({ recipients: next });
     };
 
     return (
         <>
+            {/* Channel */}
             <div>
-                <label style={sectionLabel(isDark)}>Service</label>
+                <label style={sectionLabel(isDark)}>Channel</label>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {SERVICE_OPTIONS.map((svc) => (
+                    {CHANNEL_OPTIONS.map((ch) => (
                         <button
-                            key={svc}
-                            style={tagChip(isDark, config.service === svc)}
-                            onClick={() => update({ notificationConfig: { ...config, service: svc as NotificationBlockConfig['service'] } })}
+                            key={ch}
+                            style={tagChip(isDark, config.channel === ch)}
+                            onClick={() => updateConfig({ channel: ch })}
                         >
-                            <span className="material-icons" style={{ fontSize: 14 }}>{serviceIcons[svc]}</span>
-                            {svc}
+                            <span className="material-icons" style={{ fontSize: 14 }}>{channelIcons[ch] || 'send'}</span>
+                            {ch}
                         </button>
                     ))}
                 </div>
             </div>
+
+            {/* Subject */}
             <div>
-                <label style={sectionLabel(isDark)}>
-                    {config.service === 'Email' ? 'Email Address' : config.service === 'Slack' ? 'Channel ID' : 'Recipient / Endpoint'}
-                </label>
+                <label style={sectionLabel(isDark)}>Subject</label>
                 <input
                     style={inputStyle(isDark)}
-                    value={config.recipient}
-                    onChange={(e) => update({ notificationConfig: { ...config, recipient: e.target.value } })}
-                    placeholder={config.service === 'Email' ? 'team@company.com' : config.service === 'Slack' ? '#alerts-channel' : 'Enter recipient...'}
+                    value={config.subject}
+                    onChange={(e) => updateConfig({ subject: e.target.value })}
+                    placeholder="Alert: {{workflow_name}} completed"
                 />
             </div>
+
+            {/* Recipients — dynamic list */}
+            <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <label style={sectionLabel(isDark)}>
+                        Recipients
+                        <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6, fontSize: 10, color: isDark ? '#6b7280' : '#9ca3af' }}>
+                            ({config.recipients.length})
+                        </span>
+                    </label>
+                    <button style={smallBtn(isDark)} onClick={addRecipient}>
+                        <span className="material-icons" style={{ fontSize: 14 }}>add</span> Add
+                    </button>
+                </div>
+                {config.recipients.map((r, i) => (
+                    <div key={i} style={listRow(isDark)}>
+                        <input
+                            style={listInput(isDark)}
+                            value={r}
+                            onChange={(e) => updateRecipient(i, e.target.value)}
+                            placeholder={config.channel === 'Email' ? 'user@company.com' : config.channel === 'Slack' ? '#channel' : 'Endpoint / ID'}
+                        />
+                        <button style={removeBtn} onClick={() => removeRecipient(i)}>
+                            <span className="material-icons" style={{ fontSize: 14, color: '#ef4444' }}>close</span>
+                        </button>
+                    </div>
+                ))}
+                {config.recipients.length === 0 && (
+                    <div style={{ textAlign: 'center', padding: 12, color: isDark ? '#6b7280' : '#9ca3af', fontSize: 12, fontStyle: 'italic' }}>
+                        No recipients — click "Add"
+                    </div>
+                )}
+            </div>
+
+            {/* Message Template */}
             <div>
                 <label style={sectionLabel(isDark)}>Message Template</label>
                 <textarea
                     style={{ ...textareaStyle(isDark), minHeight: 120 }}
                     value={config.messageTemplate}
-                    onChange={(e) => update({ notificationConfig: { ...config, messageTemplate: e.target.value } })}
-                    placeholder="Use {{variables}} for dynamic content.\n\ne.g., Alert: {{workflow_name}} completed with {{result_count}} results."
+                    onChange={(e) => updateConfig({ messageTemplate: e.target.value })}
+                    placeholder={"Use {{variables}} for dynamic content.\n\ne.g., Alert: {{workflow_name}} completed with status {{node_5.status}}."}
                 />
             </div>
         </>
@@ -631,52 +830,154 @@ function NotificationProperties({
 function CodeProperties({
     cfg, isDark, update,
 }: { cfg: NodeConfig; isDark: boolean; update: (u: Partial<NodeConfig>) => void }) {
-    const config: CodeBlockConfig = cfg.codeConfig || { code: '', codeFile: 'untitled.py', libraryImports: [] };
-
-    const toggleLib = (lib: string) => {
-        const has = config.libraryImports.includes(lib);
-        const next = has
-            ? config.libraryImports.filter((l) => l !== lib)
-            : [...config.libraryImports, lib];
-        update({ codeConfig: { ...config, libraryImports: next } });
+    const config: CodeBlockConfig = cfg.codeConfig || {
+        language: 'Python', code: '', inputBindings: [], outputBindings: [],
     };
+
+    const updateConfig = (updates: Partial<CodeBlockConfig>) => {
+        update({ codeConfig: { ...config, ...updates } });
+    };
+
+    const addInputBinding = () => {
+        updateConfig({ inputBindings: [...config.inputBindings, { envKey: '', mappedValue: '' }] });
+    };
+    const removeInputBinding = (idx: number) => {
+        updateConfig({ inputBindings: config.inputBindings.filter((_, i) => i !== idx) });
+    };
+    const updateInputBinding = (idx: number, updates: Partial<CodeInputBinding>) => {
+        const next = config.inputBindings.map((b, i) => i === idx ? { ...b, ...updates } : b);
+        updateConfig({ inputBindings: next });
+    };
+
+    const addOutputBinding = () => {
+        updateConfig({ outputBindings: [...config.outputBindings, ''] });
+    };
+    const removeOutputBinding = (idx: number) => {
+        updateConfig({ outputBindings: config.outputBindings.filter((_, i) => i !== idx) });
+    };
+    const updateOutputBinding = (idx: number, val: string) => {
+        const next = [...config.outputBindings];
+        next[idx] = val;
+        updateConfig({ outputBindings: next });
+    };
+
+    const fileExt = config.language === 'Python' ? 'py' : 'js';
 
     return (
         <>
+            {/* Language */}
             <div>
-                <label style={sectionLabel(isDark)}>Library Imports</label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {LIBRARY_OPTIONS.map((lib) => (
+                <label style={sectionLabel(isDark)}>Language</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                    {LANGUAGE_OPTIONS.map((lang) => (
                         <button
-                            key={lib}
-                            style={tagChip(isDark, config.libraryImports.includes(lib))}
-                            onClick={() => toggleLib(lib)}
+                            key={lang}
+                            style={tagChip(isDark, config.language === lang)}
+                            onClick={() => updateConfig({ language: lang })}
                         >
-                            {config.libraryImports.includes(lib) && (
+                            {config.language === lang && (
                                 <span className="material-icons" style={{ fontSize: 12 }}>check</span>
                             )}
-                            {lib}
+                            {lang}
                         </button>
                     ))}
                 </div>
             </div>
+
+            {/* Input Bindings — dynamic list */}
+            <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <label style={sectionLabel(isDark)}>
+                        Input Bindings
+                        <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6, fontSize: 10, color: isDark ? '#6b7280' : '#9ca3af' }}>
+                            ({config.inputBindings.length})
+                        </span>
+                    </label>
+                    <button style={smallBtn(isDark)} onClick={addInputBinding}>
+                        <span className="material-icons" style={{ fontSize: 14 }}>add</span> Add Row
+                    </button>
+                </div>
+                {config.inputBindings.map((b, i) => (
+                    <div key={i} style={listRow(isDark)}>
+                        <input
+                            style={listInput(isDark)}
+                            value={b.envKey}
+                            onChange={(e) => updateInputBinding(i, { envKey: e.target.value })}
+                            placeholder="ENV_KEY"
+                        />
+                        <span style={{ color: isDark ? '#6b7280' : '#9ca3af', fontSize: 12 }}>←</span>
+                        <input
+                            style={listInput(isDark)}
+                            value={b.mappedValue}
+                            onChange={(e) => updateInputBinding(i, { mappedValue: e.target.value })}
+                            placeholder="{{node_id.output}}"
+                        />
+                        <button style={removeBtn} onClick={() => removeInputBinding(i)}>
+                            <span className="material-icons" style={{ fontSize: 14, color: '#ef4444' }}>delete</span>
+                        </button>
+                    </div>
+                ))}
+                {config.inputBindings.length === 0 && (
+                    <div style={{ textAlign: 'center', padding: 12, color: isDark ? '#6b7280' : '#9ca3af', fontSize: 12, fontStyle: 'italic' }}>
+                        No input bindings
+                    </div>
+                )}
+            </div>
+
+            {/* Code Editor */}
             <div style={{ flex: 1, minHeight: 250, display: 'flex', flexDirection: 'column' }}>
-                <label style={sectionLabel(isDark)}>Python Editor</label>
+                <label style={sectionLabel(isDark)}>Code Editor</label>
                 <div style={editorWrap(isDark)}>
                     <div style={editorBar}>
                         <div style={dot('#ef4444')} />
                         <div style={dot('#eab308')} />
                         <div style={dot('#22c55e')} />
-                        <span style={fileNameStyle}>{config.codeFile}</span>
+                        <span style={fileNameStyle}>script.{fileExt}</span>
                     </div>
                     <textarea
                         style={codeTextarea}
                         value={config.code}
-                        onChange={(e) => update({ codeConfig: { ...config, code: e.target.value } })}
-                        placeholder="# Python 3.11 — Write your transformation logic here...\nimport pandas as pd\n\ndef process(data):\n    return data"
+                        onChange={(e) => updateConfig({ code: e.target.value })}
+                        placeholder={config.language === 'Python'
+                            ? "# Python 3.11 — Write your transformation logic here...\nimport os\n\ndef process(data):\n    return data"
+                            : "// JavaScript — Write your logic here...\nfunction process(data) {\n  return data;\n}"
+                        }
                         spellCheck={false}
                     />
                 </div>
+            </div>
+
+            {/* Output Bindings — dynamic list */}
+            <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <label style={sectionLabel(isDark)}>
+                        Output Bindings
+                        <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6, fontSize: 10, color: isDark ? '#6b7280' : '#9ca3af' }}>
+                            ({config.outputBindings.length})
+                        </span>
+                    </label>
+                    <button style={smallBtn(isDark)} onClick={addOutputBinding}>
+                        <span className="material-icons" style={{ fontSize: 14 }}>add</span> Add
+                    </button>
+                </div>
+                {config.outputBindings.map((ob, i) => (
+                    <div key={i} style={listRow(isDark)}>
+                        <input
+                            style={listInput(isDark)}
+                            value={ob}
+                            onChange={(e) => updateOutputBinding(i, e.target.value)}
+                            placeholder="output_variable_name"
+                        />
+                        <button style={removeBtn} onClick={() => removeOutputBinding(i)}>
+                            <span className="material-icons" style={{ fontSize: 14, color: '#ef4444' }}>close</span>
+                        </button>
+                    </div>
+                ))}
+                {config.outputBindings.length === 0 && (
+                    <div style={{ textAlign: 'center', padding: 12, color: isDark ? '#6b7280' : '#9ca3af', fontSize: 12, fontStyle: 'italic' }}>
+                        No output bindings
+                    </div>
+                )}
             </div>
         </>
     );
@@ -688,73 +989,79 @@ function ParameterProperties({
 }: { cfg: NodeConfig; isDark: boolean; update: (u: Partial<NodeConfig>) => void }) {
     const config: ParameterBlockConfig = cfg.parameterConfig || { parameters: [] };
 
+    const updateConfig = (updates: Partial<ParameterBlockConfig>) => {
+        update({ parameterConfig: { ...config, ...updates } });
+    };
+
     const addParam = () => {
-        update({
-            parameterConfig: {
-                parameters: [...config.parameters, { name: '', type: 'string', defaultValue: '' }],
-            },
+        updateConfig({
+            parameters: [...config.parameters, { key: '', type: 'String', defaultValue: '', required: true }],
         });
     };
 
-    const updateParam = (idx: number, updates: Partial<{ name: string; type: string; defaultValue: string }>) => {
+    const updateParam = (idx: number, updates: Partial<ParamNodeParameter>) => {
         const next = config.parameters.map((p, i) => i === idx ? { ...p, ...updates } : p);
-        update({ parameterConfig: { parameters: next } });
+        updateConfig({ parameters: next });
     };
 
     const removeParam = (idx: number) => {
-        const next = config.parameters.filter((_, i) => i !== idx);
-        update({ parameterConfig: { parameters: next } });
+        updateConfig({ parameters: config.parameters.filter((_, i) => i !== idx) });
     };
-
-    const typeOptions = ['string', 'number', 'boolean', 'date', 'json', 'file'];
 
     return (
         <>
             <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <label style={sectionLabel(isDark)}>Global Variables</label>
+                    <label style={sectionLabel(isDark)}>Parameters</label>
                     <button style={smallBtn(isDark)} onClick={addParam}>
-                        <span className="material-icons" style={{ fontSize: 14 }}>add</span> Add Variable
+                        <span className="material-icons" style={{ fontSize: 14 }}>add</span> Add Parameter
                     </button>
                 </div>
 
                 {/* Column headers */}
                 {config.parameters.length > 0 && (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 1fr 28px', gap: 6, padding: '0 8px', marginBottom: 4 }}>
-                        <span style={{ fontSize: 10, fontWeight: 600, color: isDark ? '#6b7280' : '#9ca3af', textTransform: 'uppercase' }}>Name</span>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 1fr 50px 28px', gap: 6, padding: '0 8px', marginBottom: 4 }}>
+                        <span style={{ fontSize: 10, fontWeight: 600, color: isDark ? '#6b7280' : '#9ca3af', textTransform: 'uppercase' }}>Key</span>
                         <span style={{ fontSize: 10, fontWeight: 600, color: isDark ? '#6b7280' : '#9ca3af', textTransform: 'uppercase' }}>Type</span>
                         <span style={{ fontSize: 10, fontWeight: 600, color: isDark ? '#6b7280' : '#9ca3af', textTransform: 'uppercase' }}>Default</span>
+                        <span style={{ fontSize: 10, fontWeight: 600, color: isDark ? '#6b7280' : '#9ca3af', textTransform: 'uppercase' }}>Req'd</span>
                         <span />
                     </div>
                 )}
 
                 {config.parameters.map((p, i) => (
-                    <div key={i} style={paramRow(isDark)}>
+                    <div key={i} style={{ ...listRow(isDark), display: 'grid', gridTemplateColumns: '1fr 80px 1fr 50px 28px', gap: 6 }}>
                         <input
-                            style={ruleInput(isDark, 0)}
-                            value={p.name}
-                            onChange={(e) => updateParam(i, { name: e.target.value })}
-                            placeholder="Variable name"
+                            style={listInput(isDark)}
+                            value={p.key}
+                            onChange={(e) => updateParam(i, { key: e.target.value })}
+                            placeholder="param_key"
                         />
                         <select
-                            style={{ ...ruleSelect(isDark), width: '100%' }}
+                            style={{ ...listSelect(isDark), width: '100%' }}
                             value={p.type}
-                            onChange={(e) => updateParam(i, { type: e.target.value })}
+                            onChange={(e) => updateParam(i, { type: e.target.value as ParamNodeParameter['type'] })}
                         >
-                            {typeOptions.map((t) => (
+                            {PARAM_TYPE_OPTIONS.map((t) => (
                                 <option key={t} value={t}>{t}</option>
                             ))}
                         </select>
                         <input
-                            style={ruleInput(isDark, 0)}
-                            value={p.defaultValue}
+                            style={listInput(isDark)}
+                            value={p.defaultValue ?? ''}
                             onChange={(e) => updateParam(i, { defaultValue: e.target.value })}
-                            placeholder="Default value"
+                            placeholder="Default"
                         />
                         <button
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex' }}
-                            onClick={() => removeParam(i)}
+                            style={{
+                                ...tagChip(isDark, p.required),
+                                fontSize: 10, padding: '2px 6px', justifyContent: 'center',
+                            }}
+                            onClick={() => updateParam(i, { required: !p.required })}
                         >
+                            {p.required ? '✓' : '○'}
+                        </button>
+                        <button style={removeBtn} onClick={() => removeParam(i)}>
                             <span className="material-icons" style={{ fontSize: 14, color: '#ef4444' }}>delete</span>
                         </button>
                     </div>
@@ -762,7 +1069,7 @@ function ParameterProperties({
 
                 {config.parameters.length === 0 && (
                     <div style={{ textAlign: 'center', padding: 20, color: isDark ? '#6b7280' : '#9ca3af', fontSize: 13, fontStyle: 'italic' }}>
-                        No variables defined — click "Add Variable" to create one
+                        No parameters defined — click "Add Parameter"
                     </div>
                 )}
             </div>
@@ -859,7 +1166,7 @@ export default function NodeConfigPanel() {
     const renderTypeProperties = () => {
         switch (cfg.nodeType) {
             case 'actionNode':
-                return <ContextProperties cfg={cfg} isDark={isDark} update={update} />;
+                return <ActionProperties cfg={cfg} isDark={isDark} update={update} />;
             case 'conditionalNode':
                 return <ConditionalProperties cfg={cfg} isDark={isDark} update={update} />;
             case 'resultNode':

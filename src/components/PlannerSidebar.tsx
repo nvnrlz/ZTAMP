@@ -16,6 +16,13 @@ interface WorkflowStepData {
     condition?: string;
     on_true_step?: number;
     on_false_step?: number;
+    // Dynamic schema typed payloads
+    action_payload?: Record<string, any>;
+    conditional_payload?: Record<string, any>;
+    code_payload?: Record<string, any>;
+    notify_payload?: Record<string, any>;
+    result_payload?: Record<string, any>;
+    parameter_payload?: Record<string, any>;
 }
 
 interface WorkflowParameterData {
@@ -788,6 +795,13 @@ export default function PlannerSidebar({ isExpanded, onCollapse, onExpand }: Pla
                     condition: s.condition,
                     on_true_step: s.on_true_step,
                     on_false_step: s.on_false_step,
+                    // Forward typed payloads to Canvas Agent
+                    action_payload: s.action_payload,
+                    conditional_payload: s.conditional_payload,
+                    code_payload: s.code_payload,
+                    notify_payload: s.notify_payload,
+                    result_payload: s.result_payload,
+                    parameter_payload: s.parameter_payload,
                 })),
                 workflow_parameters: {
                     floating: msg.workflowParameters

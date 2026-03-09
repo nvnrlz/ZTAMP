@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { colors } from '../../theme';
 import type { WorkflowNodeData, LiveState } from '../../data/workflowData';
+import { useWorkflow } from '../../context/WorkflowContext';
 
 /* ─── Live state glow colors ─── */
 const stateGlow: Record<LiveState, string> = {
@@ -23,20 +24,20 @@ const stateBorderColor: Record<LiveState, string> = {
 
 /**
  * F. Parameter Block — Orange Rectangle (dashed border)
- * Purpose: Defining workflow input arguments — acts as global reference
+ * Shows: parameter count + required count
  */
 const nodeStyle = (isDark: boolean, liveState: LiveState = 'idle'): CSSProperties => ({
     border: `2px dashed ${stateBorderColor[liveState]}`,
     backgroundColor: isDark ? '#1e293b' : '#fffbeb',
-    width: 160,
-    height: 76,
+    width: 180,
+    minHeight: 76,
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
     textAlign: 'center',
     borderRadius: 10,
-    padding: '4px 8px',
+    padding: '8px 10px',
     boxShadow: liveState !== 'idle'
         ? stateGlow[liveState]
         : '0 2px 12px rgba(0,0,0,0.08)',
@@ -66,12 +67,12 @@ const labelStyle = (isDark: boolean): CSSProperties => ({
     lineHeight: 1.2,
 });
 
-const paramTagStyle = (isDark: boolean): CSSProperties => ({
+const paramCountBadge = (isDark: boolean): CSSProperties => ({
     fontSize: 8,
-    fontWeight: 600,
-    color: isDark ? '#9ca3af' : '#6b7280',
-    backgroundColor: isDark ? '#374151' : '#f3f4f6',
-    padding: '1px 8px',
+    fontWeight: 700,
+    color: '#ffffff',
+    backgroundColor: colors.nodeOrange,
+    padding: '1px 6px',
     borderRadius: 3,
     marginTop: 3,
     fontFamily: "'Inter', sans-serif",
@@ -79,12 +80,25 @@ const paramTagStyle = (isDark: boolean): CSSProperties => ({
     letterSpacing: '0.04em',
 });
 
+const requiredTag = (isDark: boolean): CSSProperties => ({
+    fontSize: 8,
+    fontWeight: 500,
+    color: isDark ? '#6b7280' : '#9ca3af',
+    marginTop: 2,
+    fontFamily: "'Inter', sans-serif",
+});
+
 const handleStyle = { background: colors.nodeOrange, width: 8, height: 8 };
 
-export default function ParamNode({ data }: NodeProps) {
+export default function ParamNode({ data, id }: NodeProps) {
     const { isDark } = useTheme();
+    const { nodeConfigs } = useWorkflow();
     const d = data as WorkflowNodeData;
     const state = d.liveState || 'idle';
+    const config = nodeConfigs[id]?.parameterConfig;
+
+    const paramCount = config?.parameters?.length || 0;
+    const requiredCount = config?.parameters?.filter(p => p.required)?.length || 0;
 
     return (
         <div style={nodeStyle(isDark, state)}>
@@ -94,7 +108,14 @@ export default function ParamNode({ data }: NodeProps) {
             <Handle type="target" position={Position.Left} style={handleStyle} />
             <Handle type="target" position={Position.Top} id="top" style={handleStyle} />
             <span style={labelStyle(isDark)}>{d.label}</span>
-            <span style={paramTagStyle(isDark)}>Global Variables</span>
+            <span style={paramCountBadge(isDark)}>
+                {paramCount} param{paramCount !== 1 ? 's' : ''}
+            </span>
+            {requiredCount > 0 && (
+                <span style={requiredTag(isDark)}>
+                    {requiredCount} required
+                </span>
+            )}
             <Handle type="source" position={Position.Right} style={handleStyle} />
             <Handle type="source" position={Position.Bottom} id="bottom" style={handleStyle} />
         </div>

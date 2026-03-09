@@ -13,7 +13,6 @@ Endpoints:
 
 import logging
 import os
-import sys
 from contextlib import asynccontextmanager
 from typing import Optional
 

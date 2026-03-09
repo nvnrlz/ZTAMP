@@ -1,7 +1,7 @@
 """
 planner_agent.py — Policy-Driven Planning Agent with Real-Time Web Retrieval
 
-Architecture (v2 — replaces local RAG with live web retrieval):
+Architecture (v3 — Dynamic Schema-Driven Workflows):
 
   Phase 1: Intent & Domain Resolution  (~0.5s)
     User query → keyword extraction → PolicyEngine → allowed domains
@@ -15,11 +15,11 @@ Architecture (v2 — replaces local RAG with live web retrieval):
 
   Total target: ~8-12 seconds (down from ~120 seconds with local RAG)
 
-Key changes from v1:
-  - Removed: rag_engine.py, embedding_engine.py, query_analyzer.py dependencies
-  - Added:   policy_engine.py, retrieval_router.py
-  - The agent now fetches LIVE documentation from approved websites
-  - Zero local vector database required
+Key changes in v3:
+  - Dynamic schema-driven node data: each block_type now carries its own
+    structured payload (actionType, method, headers, rules, code, etc.)
+  - Variable interpolation: {{node_id.output_key}} syntax for cross-node data flow
+  - Pydantic-compatible dataclasses matching the TypeScript interfaces exactly
 """
 
 import json
@@ -31,11 +31,8 @@ from typing import Any, Literal, Optional
 import httpx
 
 from policy_engine import PolicyEngine
-from retrieval_router import RetrievalRouter, RetrievalResult
-from conversation_manager import (
-    ConversationManager,
-    ConversationSession,
-)
+from retrieval_router import RetrievalRouter
+from conversation_manager import ConversationManager
 
 
 logger = logging.getLogger("planner_agent")
@@ -48,6 +45,181 @@ class ConversationMessage:
     """A single message in the conversation history."""
     role: Literal["user", "assistant"]
     content: str
+
+
+# ─── Dynamic Schema Sub-Types ───────────────────────────
+
+@dataclass
+class HeaderEntry:
+    """A single HTTP header key-value pair."""
+    key: str
+    value: str
+
+    def to_dict(self) -> dict:
+        return {"key": self.key, "value": self.value}
+
+
+@dataclass
+class ExecutionSettings:
+    """Execution settings for an action block."""
+    timeoutMs: int = 30000
+    maxRetries: int = 3
+    continueOnError: bool = False
+
+    def to_dict(self) -> dict:
+        return {
+            "timeoutMs": self.timeoutMs,
+            "maxRetries": self.maxRetries,
+            "continueOnError": self.continueOnError,
+        }
+
+
+@dataclass
+class ConditionalRule:
+    """A single rule in a conditional block."""
+    variable: str
+    operator: str
+    compareValue: str
+
+    def to_dict(self) -> dict:
+        return {
+            "variable": self.variable,
+            "operator": self.operator,
+            "compareValue": self.compareValue,
+        }
+
+
+@dataclass
+class CodeInputBinding:
+    """An input binding for a code block."""
+    envKey: str
+    mappedValue: str
+
+    def to_dict(self) -> dict:
+        return {"envKey": self.envKey, "mappedValue": self.mappedValue}
+
+
+@dataclass
+class OutputMappingEntry:
+    """An output mapping for a result block."""
+    outputKey: str
+    mappedValue: str
+
+    def to_dict(self) -> dict:
+        return {"outputKey": self.outputKey, "mappedValue": self.mappedValue}
+
+
+@dataclass
+class ParamEntry:
+    """A parameter definition for a parameter block."""
+    key: str
+    type: str = "String"  # String | Number | Boolean | JSON
+    defaultValue: Any = ""
+    required: bool = True
+
+    def to_dict(self) -> dict:
+        return {
+            "key": self.key,
+            "type": self.type,
+            "defaultValue": self.defaultValue,
+            "required": self.required,
+        }
+
+
+# ─── Block-Specific Payloads ────────────────────────────
+
+@dataclass
+class ActionBlockPayload:
+    """Payload for action_block — matches ActionNodeData."""
+    actionType: str = ""
+    endpointOrTool: str = ""
+    method: str = "GET"
+    headers: list[HeaderEntry] = field(default_factory=list)
+    payload: str = ""
+    executionSettings: ExecutionSettings = field(default_factory=ExecutionSettings)
+
+    def to_dict(self) -> dict:
+        return {
+            "actionType": self.actionType,
+            "endpointOrTool": self.endpointOrTool,
+            "method": self.method,
+            "headers": [h.to_dict() for h in self.headers],
+            "payload": self.payload,
+            "executionSettings": self.executionSettings.to_dict(),
+        }
+
+
+@dataclass
+class ConditionalBlockPayload:
+    """Payload for conditional_block — matches ConditionalNodeData."""
+    logicalOperator: str = "AND"  # AND | OR
+    rules: list[ConditionalRule] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "logicalOperator": self.logicalOperator,
+            "rules": [r.to_dict() for r in self.rules],
+        }
+
+
+@dataclass
+class CodeBlockPayload:
+    """Payload for code_block — matches CodeNodeData."""
+    language: str = "Python"  # Python | JavaScript
+    code: str = ""
+    inputBindings: list[CodeInputBinding] = field(default_factory=list)
+    outputBindings: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "language": self.language,
+            "code": self.code,
+            "inputBindings": [b.to_dict() for b in self.inputBindings],
+            "outputBindings": self.outputBindings,
+        }
+
+
+@dataclass
+class NotifyBlockPayload:
+    """Payload for notification_block — matches NotifyNodeData."""
+    channel: str = "Email"
+    recipients: list[str] = field(default_factory=list)
+    subject: str = ""
+    messageTemplate: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "channel": self.channel,
+            "recipients": self.recipients,
+            "subject": self.subject,
+            "messageTemplate": self.messageTemplate,
+        }
+
+
+@dataclass
+class ResultBlockPayload:
+    """Payload for result_block — matches ResultNodeData."""
+    status: str = "Success"  # Success | Failure
+    outputMapping: list[OutputMappingEntry] = field(default_factory=list)
+    terminateExecution: bool = True
+
+    def to_dict(self) -> dict:
+        return {
+            "status": self.status,
+            "outputMapping": [m.to_dict() for m in self.outputMapping],
+            "terminateExecution": self.terminateExecution,
+        }
+
+
+@dataclass
+class ParameterBlockPayload:
+    """Payload for parameter_block — matches ParamNodeData."""
+    parameters: list[ParamEntry] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "parameters": [p.to_dict() for p in self.parameters],
+        }
 
 
 # Valid block types for Canvas rendering
@@ -69,12 +241,23 @@ class WorkflowStep:
       action_block, conditional_block, result_block,
       parameter_block, notification_block, code_block.
 
-    For conditional_block, condition / on_true_step / on_false_step are required.
+    Each step carries a typed payload matching its block_type.
+    Supports {{variable}} interpolation syntax for cross-node data flow.
     """
     step_number: int
     title: str
     description: str
     block_type: str = "action_block"
+
+    # Dynamic schema payloads — only one should be populated per step
+    action_payload: Optional[ActionBlockPayload] = None
+    conditional_payload: Optional[ConditionalBlockPayload] = None
+    code_payload: Optional[CodeBlockPayload] = None
+    notify_payload: Optional[NotifyBlockPayload] = None
+    result_payload: Optional[ResultBlockPayload] = None
+    parameter_payload: Optional[ParameterBlockPayload] = None
+
+    # Legacy fields for backward compat
     action_type: str = ""
     parameters_used: dict = field(default_factory=lambda: {"floating": [], "fixed": []})
     condition: Optional[str] = None
@@ -96,6 +279,21 @@ class WorkflowStep:
             d["on_true_step"] = self.on_true_step
         if self.on_false_step is not None:
             d["on_false_step"] = self.on_false_step
+
+        # Attach typed payload
+        if self.action_payload:
+            d["action_payload"] = self.action_payload.to_dict()
+        if self.conditional_payload:
+            d["conditional_payload"] = self.conditional_payload.to_dict()
+        if self.code_payload:
+            d["code_payload"] = self.code_payload.to_dict()
+        if self.notify_payload:
+            d["notify_payload"] = self.notify_payload.to_dict()
+        if self.result_payload:
+            d["result_payload"] = self.result_payload.to_dict()
+        if self.parameter_payload:
+            d["parameter_payload"] = self.parameter_payload.to_dict()
+
         return d
 
 
@@ -178,6 +376,38 @@ class PlannerResponse:
         return result
 
 
+# ─── Variable Interpolation Utility ─────────────────────
+
+def interpolate_variables(template: str, state: dict[str, Any]) -> str:
+    """
+    Replace {{variable}} placeholders in a string with actual values
+    from the runtime state dictionary.
+
+    Supports:
+      - Simple variables: {{bucket_name}} → state["bucket_name"]
+      - Dotted paths:     {{node_123.output_key}} → state["node_123"]["output_key"]
+
+    If a variable is not found in state, it is left as-is (unreplaced).
+    """
+    def _replacer(match: re.Match) -> str:
+        var_path = match.group(1).strip()
+
+        # Handle dotted paths: {{node_id.field}}
+        parts = var_path.split(".")
+        current: Any = state
+
+        for part in parts:
+            if isinstance(current, dict) and part in current:
+                current = current[part]
+            else:
+                # Variable not found — leave the placeholder as-is
+                return match.group(0)
+
+        return str(current)
+
+    return re.sub(r"\{\{(.+?)\}\}", _replacer, template)
+
+
 # ─── System Prompt ──────────────────────────────────────
 
 SYSTEM_PROMPT = """You are the **Systems Architect** — a rigorous workflow designer for a multi-agent cloud infrastructure orchestration engine.
@@ -192,14 +422,96 @@ Your job is to:
 Your output will be consumed by a Canvas Agent (A2UI protocol) to visually render the workflow,
 and ultimately executed by a Coding Agent. Precision is paramount.
 
-## BLOCK TYPES
-Every step in your workflow MUST use one of these block types:
-- **action_block**: A concrete infrastructure action (e.g., "Create S3 Bucket", "Attach IAM Policy").
-- **conditional_block**: A branching decision point. MUST include `condition`, `on_true_step`, `on_false_step`.
-- **result_block**: A terminal step that reports success or failure of the workflow.
-- **parameter_block**: A step that collects or validates user input before proceeding.
-- **notification_block**: A step that sends an alert or notification (e.g., email, Slack, SNS).
-- **code_block**: A step that executes custom code (e.g., a Lambda function, a shell script).
+## BLOCK TYPES & DYNAMIC SCHEMAS
+Every step MUST use one of these block types and include its corresponding typed payload:
+
+### action_block
+An API call or infrastructure action. Include the `action_payload` object:
+```json
+{
+  "action_payload": {
+    "actionType": "create | configure | deploy | validate",
+    "endpointOrTool": "https://api.example.com/v1/{{resource_id}}/action",
+    "method": "POST",
+    "headers": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+    "payload": "{\\"name\\": \\"{{bucket_name}}\\"}",
+    "executionSettings": {"timeoutMs": 30000, "maxRetries": 3, "continueOnError": false}
+  }
+}
+```
+
+### conditional_block
+A branching decision point. Include `conditional_payload`:
+```json
+{
+  "conditional_payload": {
+    "logicalOperator": "AND",
+    "rules": [{"variable": "{{node_1.status}}", "operator": "==", "compareValue": "200"}]
+  },
+  "condition": "{{node_1.status}} == 200",
+  "on_true_step": 3,
+  "on_false_step": 4
+}
+```
+
+### code_block
+Custom code execution. Include `code_payload`:
+```json
+{
+  "code_payload": {
+    "language": "Python",
+    "code": "import json\\nresult = json.loads(input_data)\\noutput = result['items']",
+    "inputBindings": [{"envKey": "input_data", "mappedValue": "{{node_2.response_body}}"}],
+    "outputBindings": ["processed_items"]
+  }
+}
+```
+
+### notification_block
+Sends alerts. Include `notify_payload`:
+```json
+{
+  "notify_payload": {
+    "channel": "Slack",
+    "recipients": ["#engineering-alerts"],
+    "subject": "Deployment: {{workflow_name}}",
+    "messageTemplate": "Workflow completed. Status: {{node_5.status}}. Results: {{node_4.output}}"
+  }
+}
+```
+
+### result_block
+Terminal step. Include `result_payload`:
+```json
+{
+  "result_payload": {
+    "status": "Success",
+    "outputMapping": [{"outputKey": "final_result", "mappedValue": "{{node_3.output}}"}],
+    "terminateExecution": true
+  }
+}
+```
+
+### parameter_block
+Defines workflow inputs. Include `parameter_payload`:
+```json
+{
+  "parameter_payload": {
+    "parameters": [
+      {"key": "bucket_name", "type": "String", "defaultValue": "", "required": true},
+      {"key": "max_retries", "type": "Number", "defaultValue": 3, "required": false}
+    ]
+  }
+}
+```
+
+## VARIABLE INTERPOLATION
+Use the `{{variable}}` syntax to pass data between nodes:
+- **Simple**: `{{bucket_name}}` — references a workflow parameter
+- **Cross-node**: `{{node_1.response_body}}` — references output from node_1
+- **Nested**: `{{node_2.data.items[0].id}}` — deep path reference
+
+Always use interpolation in: `endpointOrTool`, `payload`, `headers[].value`, `messageTemplate`, `code`, `rules[].variable`, `outputMapping[].mappedValue`.
 
 ## PARAMETER CLASSIFICATION
 You MUST classify every parameter into one of two categories:
@@ -229,24 +541,14 @@ Use this exact schema:
     {
       "step_number": 1,
       "title": "Step Title",
-      "description": "Detailed description of what this step does, using {{param_name}} for floating parameters.",
+      "description": "Detailed description using {{param_name}} for floating parameters.",
       "block_type": "action_block",
       "action_type": "create | configure | validate | execute | notify",
       "parameters_used": {
         "floating": ["param_name_1"],
         "fixed": ["param_name_2"]
-      }
-    },
-    {
-      "step_number": 2,
-      "title": "Verify Result",
-      "description": "Check that the previous step completed successfully.",
-      "block_type": "conditional_block",
-      "action_type": "validate",
-      "parameters_used": {"floating": [], "fixed": []},
-      "condition": "step_1_success == true",
-      "on_true_step": 3,
-      "on_false_step": 4
+      },
+      "action_payload": { ... }
     }
   ]
 }
@@ -255,11 +557,13 @@ Use this exact schema:
 1. **JSON ONLY** — Your entire response must be a single valid JSON object. No text before or after.
 2. **Use the documentation** — Base your workflow on the provided web documentation. If the docs are insufficient, state so in `message_to_user` but still output valid JSON with `"intent": "question"` and an empty `steps` array.
 3. **Every step needs a block_type** — No step may omit its `block_type`.
-4. **Floating vs Fixed** — Classify parameters correctly. User-specific values are floating; standard/default values are fixed.
-5. **Conditional blocks** — Must include `condition`, `on_true_step`, and `on_false_step`.
-6. **For simple questions** — If the user asks a general question (not a workflow request), respond with `"intent": "question"` and put your answer in `message_to_user`. The `steps` array MUST be empty `[]`.
-7. **Task fidelity** — Design steps ONLY for the exact task requested. Never expand scope.
-8. **Existing resources** — If the user mentions a resource by name, ASSUME IT EXISTS. Do not add creation steps for it."""
+4. **Every step needs its typed payload** — Include the corresponding `*_payload` object for each block_type.
+5. **Floating vs Fixed** — Classify parameters correctly. User-specific values are floating; standard/default values are fixed.
+6. **Conditional blocks** — Must include `condition`, `on_true_step`, and `on_false_step`.
+7. **For simple questions** — If the user asks a general question (not a workflow request), respond with `"intent": "question"` and put your answer in `message_to_user`. The `steps` array MUST be empty `[]`.
+8. **Task fidelity** — Design steps ONLY for the exact task requested. Never expand scope.
+9. **Existing resources** — If the user mentions a resource by name, ASSUME IT EXISTS. Do not add creation steps for it.
+10. **Variable interpolation** — Use `{{node_X.output_key}}` to wire data between steps. Use `{{param_name}}` for user parameters."""
 
 
 # ─── LLM Configuration ─────────────────────────────────
@@ -310,10 +614,11 @@ class PlannerAgent:
     """
     Policy-driven planning agent with real-time web retrieval.
 
-    Architecture (v2):
+    Architecture (v3 — Dynamic Schema):
     1. User query → intent detection → domain resolution (PolicyEngine)
     2. DuckDuckGo site-search → fetch approved pages → HTML→markdown
     3. Token-budgeted context → system prompt → LLM → structured response
+    4. Parse response into typed WorkflowStep payloads with interpolation support
 
     No local vector database required.
     All web access governed by Access Restriction Policy.
@@ -332,7 +637,7 @@ class PlannerAgent:
         self._http = httpx.Client(timeout=10.0)
 
         logger.info(
-            "PlannerAgent v2 initialized (model=%s, num_ctx=%d, policy=%s)",
+            "PlannerAgent v3 initialized (model=%s, num_ctx=%d, policy=%s)",
             self.llm_config.model,
             self.llm_config.num_ctx,
             [r.domain for r in policy_engine.get_allowed_domains()],
@@ -359,7 +664,7 @@ class PlannerAgent:
         4. Real-time web retrieval (policy-gated)
         5. Build prompt: system + history + web context + user message
         6. Call LLM
-        7. Parse and return structured response
+        7. Parse and return structured response with typed payloads
         """
         # ── Step 1: Session management ──
         sid = session_id or "default"
@@ -406,10 +711,8 @@ class PlannerAgent:
         # Determine whether to do web retrieval
         do_retrieve = False
         if command_mode == "search":
-            # \search always retrieves — that's the whole point
             do_retrieve = True
         elif command_mode == "create":
-            # \create: check if there's a prior \search in conversation history
             has_prior_search = any(
                 "search_results" in msg.get("content", "") or
                 "\\search" in msg.get("content", "") or
@@ -420,7 +723,6 @@ class PlannerAgent:
                 logger.info("\\create with prior \\search — using chat context (no new retrieval)")
                 do_retrieve = False
 
-                # Extract prior search results as formal SchemaReference
                 prior_search_response = None
                 for msg in reversed(history_dicts):
                     content = msg.get("content", "")
@@ -450,7 +752,6 @@ class PlannerAgent:
                 logger.info("\\create cold start — performing web retrieval")
                 do_retrieve = True
         else:
-            # General mode: respect the use_rag toggle
             do_retrieve = use_rag
 
         if do_retrieve:
@@ -532,7 +833,6 @@ class PlannerAgent:
                             "JSON parse failed (attempt %d/%d): %s — retrying",
                             attempt + 1, 1 + max_retries, error_detail,
                         )
-                        # Append the failed attempt + correction hint to the conversation
                         messages.append({"role": "assistant", "content": raw_response})
                         messages.append({
                             "role": "user",
@@ -544,7 +844,6 @@ class PlannerAgent:
                             ),
                         })
                     else:
-                        # All retries exhausted — fall back to raw text
                         logger.error(
                             "JSON parse failed after %d attempts — "
                             "falling back to raw text response.",
@@ -574,17 +873,9 @@ class PlannerAgent:
     def _refine_query(user_message: str) -> str:
         """
         Refine a user's conversational message into a focused search query.
-
-        Uses lightweight regex heuristics (no extra LLM call) to:
-        1. Strip conversational filler ("hey", "so", "I was thinking about")
-        2. Remove question preambles ("can you help me with", "I need to")
-        3. Extract core technical terms
-
-        Falls back to original message if refinement is too aggressive.
         """
         query = user_message.strip()
 
-        # Strip common conversational prefixes
         prefixes = [
             r"^(?:hey|hi|hello|howdy)\s*[,!.]?\s*",
             r"^(?:so|well|ok|okay|now)\s*[,]?\s*",
@@ -597,7 +888,6 @@ class PlannerAgent:
 
         query = query.strip()
 
-        # Keep at least 3 words
         if len(query.split()) < 3 and len(user_message.split()) >= 3:
             return user_message
 
@@ -668,17 +958,8 @@ class PlannerAgent:
     ) -> PlannerResponse:
         """
         Extract and parse a JSON object from the LLM's raw output,
-        then map it into typed PlannerResponse / WorkflowStep / WorkflowParameter
-        dataclasses.
-
-        Strategy:
-        1. Strip markdown code fences (```json ... ```) if the LLM wrapped its output.
-        2. Regex-extract everything between the FIRST '{' and the LAST '}'.
-        3. Parse with json.loads().
-        4. Map the parsed dict into our dataclasses.
-
-        Raises json.JSONDecodeError if no valid JSON can be extracted — this
-        triggers the retry loop in process_message.
+        then map it into typed PlannerResponse / WorkflowStep dataclasses
+        with dynamic schema payloads.
         """
         text = raw_response.strip()
 
@@ -688,7 +969,7 @@ class PlannerAgent:
             text = fence_match.group(1).strip()
             logger.debug("Stripped markdown code fence from LLM response")
 
-        # Step 2: Extract JSON object — first '{' to last '}'
+        # Step 2: Extract JSON object
         first_brace = text.find('{')
         last_brace = text.rfind('}')
 
@@ -708,14 +989,13 @@ class PlannerAgent:
 
         json_text = text[first_brace:last_brace + 1]
 
-        # Step 3: Parse (may raise JSONDecodeError → triggers retry)
+        # Step 3: Parse
         data = json.loads(json_text)
 
-        # Step 4: Map into dataclasses ──────────────────────
+        # Step 4: Map into dataclasses
         message = data.get("message_to_user", "")
         intent = data.get("intent", "question")
 
-        # Normalize intent
         if intent not in ("question", "action", "clarification"):
             intent = "action" if data.get("steps") else "question"
 
@@ -741,7 +1021,6 @@ class PlannerAgent:
                         description=p.get("description", ""),
                     ))
         elif isinstance(raw_params, list):
-            # Backward-compatible: flat list without param_type
             for p in raw_params:
                 if isinstance(p, dict):
                     workflow_params.append(WorkflowParameter(
@@ -751,7 +1030,7 @@ class PlannerAgent:
                         description=p.get("description", ""),
                     ))
 
-        # ── Steps ──
+        # ── Steps with typed payloads ──
         steps: list[WorkflowStep] = []
         for s in data.get("steps", []):
             if not isinstance(s, dict):
@@ -765,7 +1044,7 @@ class PlannerAgent:
                 )
                 block_type = "action_block"
 
-            steps.append(WorkflowStep(
+            step = WorkflowStep(
                 step_number=s.get("step_number", len(steps) + 1),
                 title=s.get("title", f"Step {len(steps) + 1}"),
                 description=s.get("description", ""),
@@ -775,7 +1054,63 @@ class PlannerAgent:
                 condition=s.get("condition"),
                 on_true_step=s.get("on_true_step"),
                 on_false_step=s.get("on_false_step"),
-            ))
+            )
+
+            # Parse typed payloads from the LLM response
+            if block_type == "action_block" and "action_payload" in s:
+                ap = s["action_payload"]
+                step.action_payload = ActionBlockPayload(
+                    actionType=ap.get("actionType", ""),
+                    endpointOrTool=ap.get("endpointOrTool", ""),
+                    method=ap.get("method", "GET"),
+                    headers=[HeaderEntry(**h) for h in ap.get("headers", []) if isinstance(h, dict)],
+                    payload=ap.get("payload", ""),
+                    executionSettings=ExecutionSettings(
+                        **{k: v for k, v in ap.get("executionSettings", {}).items()
+                           if k in ("timeoutMs", "maxRetries", "continueOnError")}
+                    ) if ap.get("executionSettings") else ExecutionSettings(),
+                )
+
+            elif block_type == "conditional_block" and "conditional_payload" in s:
+                cp = s["conditional_payload"]
+                step.conditional_payload = ConditionalBlockPayload(
+                    logicalOperator=cp.get("logicalOperator", "AND"),
+                    rules=[ConditionalRule(**r) for r in cp.get("rules", []) if isinstance(r, dict)],
+                )
+
+            elif block_type == "code_block" and "code_payload" in s:
+                cdp = s["code_payload"]
+                step.code_payload = CodeBlockPayload(
+                    language=cdp.get("language", "Python"),
+                    code=cdp.get("code", ""),
+                    inputBindings=[CodeInputBinding(**b) for b in cdp.get("inputBindings", []) if isinstance(b, dict)],
+                    outputBindings=cdp.get("outputBindings", []),
+                )
+
+            elif block_type == "notification_block" and "notify_payload" in s:
+                np = s["notify_payload"]
+                step.notify_payload = NotifyBlockPayload(
+                    channel=np.get("channel", "Email"),
+                    recipients=np.get("recipients", []),
+                    subject=np.get("subject", ""),
+                    messageTemplate=np.get("messageTemplate", ""),
+                )
+
+            elif block_type == "result_block" and "result_payload" in s:
+                rp = s["result_payload"]
+                step.result_payload = ResultBlockPayload(
+                    status=rp.get("status", "Success"),
+                    outputMapping=[OutputMappingEntry(**m) for m in rp.get("outputMapping", []) if isinstance(m, dict)],
+                    terminateExecution=rp.get("terminateExecution", True),
+                )
+
+            elif block_type == "parameter_block" and "parameter_payload" in s:
+                pp = s["parameter_payload"]
+                step.parameter_payload = ParameterBlockPayload(
+                    parameters=[ParamEntry(**p) for p in pp.get("parameters", []) if isinstance(p, dict)],
+                )
+
+            steps.append(step)
 
         # If the LLM produced steps, force intent to 'action'
         if steps:

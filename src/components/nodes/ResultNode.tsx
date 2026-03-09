@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { colors } from '../../theme';
 import type { WorkflowNodeData, LiveState } from '../../data/workflowData';
+import { useWorkflow } from '../../context/WorkflowContext';
 
 /* ─── Live state glow colors ─── */
 const stateGlow: Record<LiveState, string> = {
@@ -23,20 +24,20 @@ const stateBorderColor: Record<LiveState, string> = {
 
 /**
  * C. Result Block — Green Rectangle
- * Purpose: Formatting final output (Excel, JSON, PDF)
+ * Shows: status badge (Success/Failure) + output count
  */
 const nodeStyle = (isDark: boolean, dimmed?: boolean, liveState: LiveState = 'idle'): CSSProperties => ({
     border: `2px solid ${stateBorderColor[liveState]}`,
     backgroundColor: isDark ? '#1e293b' : '#ffffff',
-    width: 160,
-    height: 76,
+    width: 180,
+    minHeight: 76,
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
     textAlign: 'center',
     borderRadius: 10,
-    padding: '4px 8px',
+    padding: '8px 10px',
     boxShadow: liveState !== 'idle'
         ? stateGlow[liveState]
         : '0 2px 8px rgba(0,0,0,0.06)',
@@ -67,19 +68,38 @@ const labelStyle = (isDark: boolean): CSSProperties => ({
     lineHeight: 1.2,
 });
 
-const subLabelStyle: CSSProperties = {
-    fontSize: 9,
-    color: '#6b7280',
+const statusBadge = (status: string): CSSProperties => ({
+    fontSize: 8,
+    fontWeight: 700,
+    color: '#ffffff',
+    backgroundColor: status === 'Failure' ? '#ef4444' : '#22c55e',
+    padding: '1px 6px',
+    borderRadius: 3,
+    marginTop: 3,
+    fontFamily: "'Inter', sans-serif",
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+});
+
+const outputTag = (isDark: boolean): CSSProperties => ({
+    fontSize: 8,
+    fontWeight: 500,
+    color: isDark ? '#6b7280' : '#9ca3af',
     marginTop: 2,
     fontFamily: "'Inter', sans-serif",
-};
+});
 
 const handleStyle = { background: colors.nodeGreen, width: 8, height: 8 };
 
-export default function ResultNode({ data }: NodeProps) {
+export default function ResultNode({ data, id }: NodeProps) {
     const { isDark } = useTheme();
+    const { nodeConfigs } = useWorkflow();
     const d = data as WorkflowNodeData;
     const state = d.liveState || 'idle';
+    const config = nodeConfigs[id]?.resultConfig;
+
+    const status = config?.status || 'Success';
+    const outputCount = config?.outputMapping?.length || 0;
 
     return (
         <div style={nodeStyle(isDark, d.dimmed, state)}>
@@ -89,7 +109,14 @@ export default function ResultNode({ data }: NodeProps) {
             <Handle type="target" position={Position.Left} style={handleStyle} />
             <Handle type="target" position={Position.Top} id="top" style={handleStyle} />
             <span style={labelStyle(isDark)}>{d.label}</span>
-            {d.subLabel && <span style={subLabelStyle}>{d.subLabel}</span>}
+            <span style={statusBadge(status)}>
+                {status === 'Failure' ? '✗ Failure' : '✓ Success'}
+            </span>
+            {outputCount > 0 && (
+                <span style={outputTag(isDark)}>
+                    {outputCount} output{outputCount !== 1 ? 's' : ''}
+                </span>
+            )}
             <Handle type="source" position={Position.Right} style={handleStyle} />
             <Handle type="source" position={Position.Bottom} id="bottom" style={handleStyle} />
         </div>

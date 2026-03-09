@@ -18,55 +18,61 @@ import {
     addEdge,
 } from '@xyflow/react';
 import { type WorkflowNodeData } from '../data/workflowData';
+import type {
+    ParamNodeParameter,
+    ActionHeaderEntry,
+    ExecutionSettings,
+    ConditionalRule,
+    CodeInputBinding,
+    OutputMappingEntry,
+} from '../data/workflowData';
 
 /* ═══════════════════════════════════════════════════════════
-   Block-Type Specific Config Interfaces
+   Dynamic Schema-Driven Block Config Interfaces
    ═══════════════════════════════════════════════════════════ */
 
-/** A. Primary (Context) Block — Blue Rectangle */
-export interface ContextBlockConfig {
-    contextSources: string[];       // list of document/database names
-    query: string;                  // research query
+/** A. Action Block Config */
+export interface ActionBlockConfig {
+    actionType: string;
+    endpointOrTool: string;
+    method: string;
+    headers: ActionHeaderEntry[];
+    payload: string;
+    executionSettings: ExecutionSettings;
 }
 
-/** Condition rule for conditional block */
-export interface ConditionRule {
-    id: string;
-    field: string;
-    operator: '>' | '<' | '>=' | '<=' | '==' | '!=' | 'contains' | 'starts_with';
-    value: string;
-    branchLabel: string;
-}
-
-/** B. Conditional Block — Yellow Diamond */
+/** B. Conditional Block Config */
 export interface ConditionalBlockConfig {
-    rules: ConditionRule[];
-    defaultBranch: string;
+    logicalOperator: 'AND' | 'OR';
+    rules: ConditionalRule[];
 }
 
-/** C. Result Block — Green Circle */
+/** C. Result Block Config */
 export interface ResultBlockConfig {
-    outputFormat: 'Excel' | 'JSON' | 'PDF' | 'CSV';
-    template: string;               // report structure template
+    status: 'Success' | 'Failure';
+    outputMapping: OutputMappingEntry[];
+    terminateExecution: boolean;
 }
 
-/** D. Notification Block — Purple Bell */
+/** D. Notification Block Config */
 export interface NotificationBlockConfig {
-    service: 'Slack' | 'Email' | 'PagerDuty' | 'Webhook';
-    recipient: string;
+    channel: string;
+    recipients: string[];
+    subject: string;
     messageTemplate: string;
 }
 
-/** E. Code Block — Grey Terminal */
+/** E. Code Block Config */
 export interface CodeBlockConfig {
+    language: 'Python' | 'JavaScript';
     code: string;
-    codeFile: string;
-    libraryImports: string[];       // e.g. ['pandas', 'numpy']
+    inputBindings: CodeInputBinding[];
+    outputBindings: string[];
 }
 
-/** F. Parameter Block — Orange Hexagon */
+/** F. Parameter Block Config */
 export interface ParameterBlockConfig {
-    parameters: { name: string; type: string; defaultValue: string }[];
+    parameters: ParamNodeParameter[];
 }
 
 /* ─── Retry Policy (shared across all blocks) ─── */
@@ -89,7 +95,7 @@ export interface NodeConfig {
     retryPolicy: RetryPolicy;
 
     // Type-specific configs (only one will be populated per node)
-    contextConfig?: ContextBlockConfig;
+    actionConfig?: ActionBlockConfig;
     conditionalConfig?: ConditionalBlockConfig;
     resultConfig?: ResultBlockConfig;
     notificationConfig?: NotificationBlockConfig;
@@ -127,25 +133,48 @@ function defaultConfigForNode(node: Node<WorkflowNodeData>): NodeConfig {
 
     switch (nodeType) {
         case 'actionNode':
-            base.contextConfig = { contextSources: [], query: '' };
+            base.actionConfig = {
+                actionType: '',
+                endpointOrTool: '',
+                method: 'GET',
+                headers: [],
+                payload: '',
+                executionSettings: { timeoutMs: 30000, maxRetries: 3, continueOnError: false },
+            };
             break;
         case 'conditionalNode':
             base.conditionalConfig = {
-                rules: [{ id: 'rule-1', field: '', operator: '>', value: '', branchLabel: 'True' }],
-                defaultBranch: 'Default',
+                logicalOperator: 'AND',
+                rules: [{ variable: '', operator: '==', compareValue: '' }],
             };
             break;
         case 'resultNode':
-            base.resultConfig = { outputFormat: 'Excel', template: '' };
+            base.resultConfig = {
+                status: 'Success',
+                outputMapping: [],
+                terminateExecution: true,
+            };
             break;
         case 'notifyNode':
-            base.notificationConfig = { service: 'Email', recipient: '', messageTemplate: '' };
+            base.notificationConfig = {
+                channel: 'Email',
+                recipients: [],
+                subject: '',
+                messageTemplate: '',
+            };
             break;
         case 'codeNode':
-            base.codeConfig = { code: '', codeFile: 'untitled.py', libraryImports: ['pandas', 'numpy'] };
+            base.codeConfig = {
+                language: 'Python',
+                code: '',
+                inputBindings: [],
+                outputBindings: [],
+            };
             break;
         case 'paramNode':
-            base.parameterConfig = { parameters: [{ name: 'TargetRegion', type: 'string', defaultValue: '' }] };
+            base.parameterConfig = {
+                parameters: [{ key: 'input_param', type: 'String', defaultValue: '', required: true }],
+            };
             break;
     }
 
